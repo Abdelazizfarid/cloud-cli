@@ -11,6 +11,7 @@ interface DashboardProps {
   processingSessions: Set<string>;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession) => void;
+  onNewSession?: (project: Project) => void;
   onProjectDelete?: (projectId: string, force: boolean) => void;
   onProjectArchive?: (projectId: string) => void;
 }
@@ -259,6 +260,7 @@ export default function Dashboard({
   processingSessions,
   onProjectSelect,
   onSessionSelect,
+  onNewSession,
   onProjectDelete,
   onProjectArchive,
 }: DashboardProps) {
@@ -383,6 +385,7 @@ export default function Dashboard({
             onToggleExpand={(id) => setExpandedProjectId(expandedProjectId === id ? null : id)}
             onProjectSelect={onProjectSelect}
             onSessionSelect={onSessionSelect}
+            onNewSession={onNewSession}
             onProjectDelete={onProjectDelete}
             onProjectArchive={onProjectArchive}
             onEditClaudeMd={openProjectClaudeMd}
@@ -428,6 +431,7 @@ function ProjectsView({
   onToggleExpand,
   onProjectSelect,
   onSessionSelect,
+  onNewSession,
   onProjectDelete,
   onProjectArchive,
   onEditClaudeMd,
@@ -440,6 +444,7 @@ function ProjectsView({
   onToggleExpand: (id: string) => void;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession) => void;
+  onNewSession?: (project: Project) => void;
   onProjectDelete?: (projectId: string, force: boolean) => void;
   onProjectArchive?: (projectId: string) => void;
   onEditClaudeMd: (project: Project) => void;
@@ -494,6 +499,15 @@ function ProjectsView({
               >
                 Open
               </button>
+              {onNewSession && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onNewSession(project); }}
+                  className="rounded px-2 py-1 text-xs font-medium text-green-600 dark:text-green-400 hover:bg-green-500/10 transition-colors"
+                  title="New session"
+                >
+                  +
+                </button>
+              )}
               <button
                 onClick={(e) => { e.stopPropagation(); onEditClaudeMd(project); }}
                 className="rounded px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"

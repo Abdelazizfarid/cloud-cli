@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import Sidebar from '../sidebar/view/Sidebar';
@@ -29,7 +29,9 @@ export default function AppContent() {
 
 function AppContentInner() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { sessionId } = useParams<{ sessionId?: string }>();
+  const isHomeRoute = location.pathname === '/home' || location.pathname === '/home/';
   const { t } = useTranslation('common');
   const { isMobile } = useDeviceSettings({ trackPWA: false });
   const { preferences } = useUiPreferences();
@@ -89,6 +91,13 @@ function AppContentInner() {
   const [forceDashboard, setForceDashboard] = useState(false);
   const [splitMode, setSplitMode] = useState(false);
   const [showSyncPanel, setShowSyncPanel] = useState(false);
+
+  // Clear forceDashboard when navigating away from /home
+  useEffect(() => {
+    if (sessionId) {
+      setForceDashboard(false);
+    }
+  }, [sessionId]);
 
   // Sync: when user switches session tab, select that tab's project/session
   const handleTabSwitch = useCallback((tabId: string) => {
@@ -317,12 +326,12 @@ function AppContentInner() {
           <TabBar
             tabs={tabs}
             activeTabId={activeTabId}
-            showingDashboard={forceDashboard || (!selectedSession && !isLoadingProjects && activeTab !== 'chat' && projects.length > 0)}
+            showingDashboard={forceDashboard || isHomeRoute || (!selectedSession && !isLoadingProjects && activeTab !== 'chat' && projects.length > 0)}
             splitMode={splitMode}
             onSwitch={handleTabSwitch}
             onClose={closeTab}
             onAdd={() => setShowNewTabPicker(true)}
-            onHome={() => { setForceDashboard(true); setSplitMode(false); }}
+            onHome={() => { setForceDashboard(true); setSplitMode(false); navigate('/home'); }}
             onToggleSplit={() => { setSplitMode((prev) => !prev); setForceDashboard(false); }}
           />
         )}
@@ -339,13 +348,14 @@ function AppContentInner() {
               onCancel={() => setShowNewTabPicker(false)}
             />
           )}
-          {(forceDashboard || (!selectedSession && !isLoadingProjects && activeTab !== 'chat')) && projects.length > 0 && !splitMode ? (
+          {(forceDashboard || isHomeRoute || (!selectedSession && !isLoadingProjects && activeTab !== 'chat')) && projects.length > 0 && !splitMode ? (
             <Dashboard
               projects={projects}
               activeSessions={activeSessions}
               processingSessions={processingSessions}
               onProjectSelect={(project) => { setForceDashboard(false); handleProjectSelect(project); }}
               onSessionSelect={(session) => { setForceDashboard(false); handleSessionSelect(session); }}
+              onNewSession={(project) => { setForceDashboard(false); handleNewSession(project); }}
               onProjectDelete={handleDashboardProjectDelete}
               onProjectArchive={async (projectId) => {
                 try {

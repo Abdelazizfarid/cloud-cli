@@ -115,6 +115,7 @@ export default function App() {
                   <Router basename={routerBasename}>
                     <Routes>
                       <Route path="/" element={<AppContent />} />
+                      <Route path="/home" element={<AppContent />} />
                       <Route path="/session/:sessionId" element={<AppContent />} />
                     </Routes>
                   </Router>
