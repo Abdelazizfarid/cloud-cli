@@ -28,7 +28,11 @@ export function useSyncState() {
   const [error, setError] = useState<string | null>(null);
   const [remotePayload, setRemotePayload] = useState<any>(null);
 
-  const remoteUrl = localStorage.getItem('sync-remote-url') || '';
+  const [remoteUrl, setRemoteUrl] = useState(localStorage.getItem('sync-remote-url') || '');
+
+  const refreshRemoteUrl = useCallback(() => {
+    setRemoteUrl(localStorage.getItem('sync-remote-url') || '');
+  }, []);
 
   const getRemoteBase = useCallback(() => {
     const url = localStorage.getItem('sync-remote-url');
@@ -150,5 +154,6 @@ export function useSyncState() {
     pull,
     resolveConflict,
     dismissError,
+    refreshRemoteUrl,
   };
 }

@@ -14,6 +14,7 @@ export default function SyncPanel({ onClose }: { onClose: () => void }) {
     pull,
     resolveConflict,
     dismissError,
+    refreshRemoteUrl,
   } = useSyncState();
 
   const [showSettings, setShowSettings] = useState(!remoteUrl);
@@ -24,6 +25,7 @@ export default function SyncPanel({ onClose }: { onClose: () => void }) {
     localStorage.setItem('sync-remote-url', urlInput);
     if (tokenInput) localStorage.setItem('sync-remote-token', tokenInput);
     setShowSettings(false);
+    refreshRemoteUrl();
   };
 
   if (syncState === 'resolving' && conflicts.length > 0) {

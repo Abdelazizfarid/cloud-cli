@@ -145,7 +145,7 @@ app.locals.wss = wss;
 
 app.use(cors({ exposedHeaders: ['X-Refreshed-Token'] }));
 app.use(express.json({
-    limit: '50mb',
+    limit: '200mb',
     type: (req) => {
         // Skip multipart/form-data requests (for file uploads like images)
         const contentType = req.headers['content-type'] || '';
