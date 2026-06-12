@@ -9,7 +9,7 @@ import type {
   RefObject,
   TouchEvent,
 } from 'react';
-import { ImageIcon, MessageSquareIcon, XIcon, ArrowDownIcon } from 'lucide-react';
+import { ImageIcon, MessageSquareIcon, XIcon, ArrowDownIcon, MicIcon, LoaderIcon } from 'lucide-react';
 
 import type { PendingPermissionRequest, PermissionMode, Provider } from '../../types/types';
 import {
@@ -28,6 +28,7 @@ import ClaudeStatus from './ClaudeStatus';
 import ImageAttachment from './ImageAttachment';
 import PermissionRequestsBanner from './PermissionRequestsBanner';
 import TokenUsageSummary from './TokenUsageSummary';
+import { useVoiceInput } from '../../hooks/useVoiceInput';
 
 interface MentionableFile {
   name: string;
@@ -155,6 +156,17 @@ export default function ChatComposer({
   sendByCtrlEnter,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
+
+  const { isRecording, isProcessing, toggleRecording } = useVoiceInput((text) => {
+    if (textareaRef.current) {
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype, 'value'
+      )?.set;
+      nativeInputValueSetter?.call(textareaRef.current, input ? input + ' ' + text : text);
+      textareaRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  });
+
   const textareaRect = textareaRef.current?.getBoundingClientRect();
   const commandMenuPosition = {
     top: textareaRect ? Math.max(16, textareaRect.top - 316) : 0,
@@ -385,6 +397,14 @@ export default function ChatComposer({
           </PromptInputTools>
 
           <div className="flex items-center gap-2">
+            <PromptInputButton
+              tooltip={{ content: isRecording ? 'Stop recording' : isProcessing ? 'Processing...' : 'Voice input' }}
+              onClick={toggleRecording}
+              disabled={isProcessing}
+              className={isRecording ? 'text-red-500 animate-pulse' : isProcessing ? 'text-yellow-500' : ''}
+            >
+              {isProcessing ? <LoaderIcon className="animate-spin" /> : <MicIcon />}
+            </PromptInputButton>
             <div
               className={`hidden text-xs text-muted-foreground/50 transition-opacity duration-200 lg:block ${
                 input.trim() ? 'opacity-0' : 'opacity-100'
