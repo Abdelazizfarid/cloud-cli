@@ -319,13 +319,9 @@ export default function Dashboard({
     try {
       const res = await api.getProjectMemory(project.projectId);
       const data = await res.json();
-      if (!data.files || data.files.length === 0) {
-        alert('No memory files found for this project');
-        return;
-      }
       setMdEditor({
         title: `Memory Files — ${project.displayName}`,
-        content: '__FILE_LIST__' + JSON.stringify(data.files),
+        content: '__FILE_LIST__' + JSON.stringify(data.files || []),
         onSave: async () => {},
         _projectId: project.projectId,
         _files: data.files,
