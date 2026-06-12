@@ -69,7 +69,7 @@ function MarkdownEditor({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="flex flex-col w-full max-w-3xl max-h-[85vh] rounded-xl border border-border bg-card shadow-2xl">
+      <div className="flex flex-col w-full max-w-4xl h-[80vh] rounded-xl border border-border bg-card shadow-2xl">
         <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
           <div className="flex items-center gap-2">
             <FileText className="w-4 h-4 text-primary" />
