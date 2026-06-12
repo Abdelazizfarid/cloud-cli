@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 
 const GEMINI_API_KEY = 'AIzaSyAUYW4KySN8XNAEpZ_Jo8LxE5jtCQl-PXM';
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 export function useVoiceInput(onTranscription: (text: string) => void) {
   const [isRecording, setIsRecording] = useState(false);
