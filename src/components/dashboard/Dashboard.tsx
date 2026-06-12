@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
-import { Folder, MessageSquare, Play, Square, Clock, LayoutGrid, List, Trash2 } from 'lucide-react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { Folder, MessageSquare, Play, Square, Clock, LayoutGrid, List, Trash2, Archive, FileText, X, Save, ChevronDown, ChevronRight, Globe } from 'lucide-react';
 import type { Project, ProjectSession } from '../../types/app';
+import api from '../../utils/api';
 
 type ViewMode = 'projects' | 'sessions';
 
@@ -11,6 +12,7 @@ interface DashboardProps {
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession) => void;
   onProjectDelete?: (projectId: string, force: boolean) => void;
+  onProjectArchive?: (projectId: string) => void;
 }
 
 function getAllSessions(project: Project): ProjectSession[] {
@@ -37,6 +39,68 @@ function formatTime(dateStr?: string): string {
   return `${diffDay}d ago`;
 }
 
+// --- Markdown Editor Modal ---
+
+function MarkdownEditor({
+  title,
+  content,
+  onSave,
+  onClose,
+}: {
+  title: string;
+  content: string;
+  onSave: (content: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [value, setValue] = useState(content);
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onSave(value);
+      onClose();
+    } catch (e) {
+      alert('Failed to save: ' + (e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="flex flex-col w-full max-w-3xl max-h-[85vh] rounded-xl border border-border bg-card shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <FileText className="w-4 h-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              <Save className="w-3.5 h-3.5" />
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+            <button onClick={onClose} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted/50">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+        <textarea
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="flex-1 resize-none bg-background/50 p-4 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+          placeholder="Write markdown content here..."
+          spellCheck={false}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard({
   projects,
   activeSessions,
@@ -44,9 +108,11 @@ export default function Dashboard({
   onProjectSelect,
   onSessionSelect,
   onProjectDelete,
+  onProjectArchive,
 }: DashboardProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('projects');
   const [expandedProjectId, setExpandedProjectId] = useState<string | null>(null);
+  const [mdEditor, setMdEditor] = useState<{ title: string; content: string; onSave: (c: string) => Promise<void> } | null>(null);
 
   const allSessions = useMemo(() => {
     const sessions: (ProjectSession & { _projectName: string })[] = [];
@@ -63,34 +129,95 @@ export default function Dashboard({
     return sessions;
   }, [projects]);
 
+  const openGlobalClaudeMd = useCallback(async () => {
+    try {
+      const res = await api.getGlobalClaudeMd();
+      const data = await res.json();
+      setMdEditor({
+        title: 'Global CLAUDE.md',
+        content: data.content || '',
+        onSave: async (content: string) => {
+          const saveRes = await api.saveGlobalClaudeMd(content);
+          if (!saveRes.ok) throw new Error('Save failed');
+        },
+      });
+    } catch (e) {
+      alert('Failed to load global CLAUDE.md');
+    }
+  }, []);
+
+  const openProjectClaudeMd = useCallback(async (project: Project) => {
+    try {
+      const res = await api.getProjectClaudeMd(project.projectId);
+      const data = await res.json();
+      setMdEditor({
+        title: `CLAUDE.md — ${project.displayName}`,
+        content: data.content || '',
+        onSave: async (content: string) => {
+          const saveRes = await api.saveProjectClaudeMd(project.projectId, content);
+          if (!saveRes.ok) throw new Error('Save failed');
+        },
+      });
+    } catch (e) {
+      alert('Failed to load project CLAUDE.md');
+    }
+  }, []);
+
+  const openProjectMemory = useCallback(async (project: Project) => {
+    try {
+      const res = await api.getProjectMemory(project.projectId);
+      const data = await res.json();
+      setMdEditor({
+        title: `Memory — ${project.displayName}`,
+        content: data.content || '',
+        onSave: async (content: string) => {
+          const saveRes = await api.saveProjectMemory(project.projectId, content);
+          if (!saveRes.ok) throw new Error('Save failed');
+        },
+      });
+    } catch (e) {
+      alert('Failed to load project memory');
+    }
+  }, []);
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border/50 px-5 py-3 shrink-0">
         <h1 className="text-base font-semibold text-foreground">Dashboard</h1>
-        <div className="flex items-center gap-1 rounded-lg bg-muted/50 p-0.5">
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => setViewMode('projects')}
-            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-              viewMode === 'projects'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
+            onClick={openGlobalClaudeMd}
+            className="flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+            title="Edit global CLAUDE.md"
           >
-            <LayoutGrid className="w-3.5 h-3.5" />
-            Projects
+            <Globe className="w-3.5 h-3.5" />
+            CLAUDE.md
           </button>
-          <button
-            onClick={() => setViewMode('sessions')}
-            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-              viewMode === 'sessions'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <List className="w-3.5 h-3.5" />
-            Sessions
-          </button>
+          <div className="flex items-center gap-1 rounded-lg bg-muted/50 p-0.5">
+            <button
+              onClick={() => setViewMode('projects')}
+              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                viewMode === 'projects'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              Projects
+            </button>
+            <button
+              onClick={() => setViewMode('sessions')}
+              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                viewMode === 'sessions'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <List className="w-3.5 h-3.5" />
+              Sessions
+            </button>
+          </div>
         </div>
       </div>
 
@@ -105,6 +232,10 @@ export default function Dashboard({
             onToggleExpand={(id) => setExpandedProjectId(expandedProjectId === id ? null : id)}
             onProjectSelect={onProjectSelect}
             onSessionSelect={onSessionSelect}
+            onProjectDelete={onProjectDelete}
+            onProjectArchive={onProjectArchive}
+            onEditClaudeMd={openProjectClaudeMd}
+            onEditMemory={openProjectMemory}
           />
         ) : (
           <SessionsView
@@ -115,6 +246,16 @@ export default function Dashboard({
           />
         )}
       </div>
+
+      {/* Markdown Editor Modal */}
+      {mdEditor && (
+        <MarkdownEditor
+          title={mdEditor.title}
+          content={mdEditor.content}
+          onSave={mdEditor.onSave}
+          onClose={() => setMdEditor(null)}
+        />
+      )}
     </div>
   );
 }
@@ -129,6 +270,10 @@ function ProjectsView({
   onToggleExpand,
   onProjectSelect,
   onSessionSelect,
+  onProjectDelete,
+  onProjectArchive,
+  onEditClaudeMd,
+  onEditMemory,
 }: {
   projects: Project[];
   activeSessions: Set<string>;
@@ -137,6 +282,10 @@ function ProjectsView({
   onToggleExpand: (id: string) => void;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession) => void;
+  onProjectDelete?: (projectId: string, force: boolean) => void;
+  onProjectArchive?: (projectId: string) => void;
+  onEditClaudeMd: (project: Project) => void;
+  onEditMemory: (project: Project) => void;
 }) {
   if (projects.length === 0) {
     return (
@@ -176,24 +325,58 @@ function ProjectsView({
                   )}
                 </p>
               </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (onProjectDelete && confirm(`Delete project "${project.displayName}" and all its sessions?`)) {
-                    onProjectDelete(project.projectId, true);
-                  }
-                }}
-                className="text-xs text-red-500 hover:text-red-400 shrink-0 p-1"
-                title="Delete project"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+              {isExpanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+            </div>
+
+            {/* Action Bar */}
+            <div className="flex items-center gap-1 border-t border-border/30 px-3 py-1.5 bg-muted/10">
               <button
                 onClick={(e) => { e.stopPropagation(); onProjectSelect(project); }}
-                className="text-xs text-primary hover:underline shrink-0"
+                className="rounded px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
               >
                 Open
               </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onEditClaudeMd(project); }}
+                className="rounded px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+                title="Edit CLAUDE.md"
+              >
+                CLAUDE.md
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onEditMemory(project); }}
+                className="rounded px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+                title="Edit Memory"
+              >
+                Memory
+              </button>
+              <div className="flex-1" />
+              {onProjectArchive && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onProjectArchive(project.projectId);
+                  }}
+                  className="rounded p-1 text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 transition-colors"
+                  title="Archive project"
+                >
+                  <Archive className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {onProjectDelete && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (confirm(`Permanently delete "${project.displayName}" and all its sessions?`)) {
+                      onProjectDelete(project.projectId, true);
+                    }
+                  }}
+                  className="rounded p-1 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                  title="Delete project permanently"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
 
             {/* Expanded Sessions */}
@@ -235,9 +418,6 @@ function SessionsView({
   processingSessions: Set<string>;
   onSessionSelect: (session: ProjectSession) => void;
 }) {
-  const running = sessions.filter((s) => activeSessions.has(s.id) || processingSessions.has(s.id));
-  const stopped = sessions.filter((s) => !activeSessions.has(s.id) && !processingSessions.has(s.id));
-
   if (sessions.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
@@ -248,58 +428,37 @@ function SessionsView({
   }
 
   return (
-    <div className="space-y-5">
-      {/* Running */}
-      {running.length > 0 && (
-        <div>
-          <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-green-500 mb-2 px-1">
-            <Play className="w-3 h-3" />
-            Running ({running.length})
-          </h3>
-          <div className="space-y-1">
-            {running.map((session) => (
-              <SessionRowFull
-                key={session.id}
-                session={session}
-                projectName={session._projectName}
-                status="running"
-                isProcessing={processingSessions.has(session.id)}
-                onSelect={() => onSessionSelect(session)}
-              />
-            ))}
+    <div className="space-y-1">
+      {sessions.map((session) => (
+        <div
+          key={session.id}
+          onClick={() => onSessionSelect(session)}
+          className="flex items-center gap-3 rounded-lg px-4 py-2.5 cursor-pointer hover:bg-muted/30 transition-colors border border-transparent hover:border-border/40"
+        >
+          <div className="flex items-center gap-2">
+            {activeSessions.has(session.id) || processingSessions.has(session.id) ? (
+              <Play className="w-3 h-3 text-green-500 fill-green-500" />
+            ) : (
+              <Square className="w-3 h-3 text-muted-foreground" />
+            )}
           </div>
-        </div>
-      )}
-
-      {/* Stopped */}
-      <div>
-        <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 px-1">
-          <Square className="w-3 h-3" />
-          Stopped ({stopped.length})
-        </h3>
-        <div className="space-y-1">
-          {stopped.slice(0, 50).map((session) => (
-            <SessionRowFull
-              key={session.id}
-              session={session}
-              projectName={session._projectName}
-              status="stopped"
-              isProcessing={false}
-              onSelect={() => onSessionSelect(session)}
-            />
-          ))}
-          {stopped.length > 50 && (
-            <p className="text-xs text-muted-foreground px-3 py-1">
-              +{stopped.length - 50} more sessions
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-foreground truncate">
+              {session.summary || session.id.slice(0, 8)}
             </p>
-          )}
+            <p className="text-xs text-muted-foreground">{session._projectName}</p>
+          </div>
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
+            <Clock className="w-3 h-3" />
+            {formatTime(session.updated_at || session.created_at || session.createdAt)}
+          </span>
         </div>
-      </div>
+      ))}
     </div>
   );
 }
 
-// --- Session Row (compact, for project expand) ---
+// --- Session Row ---
 
 function SessionRow({
   session,
@@ -312,82 +471,22 @@ function SessionRow({
   isProcessing: boolean;
   onSelect: () => void;
 }) {
-  const status = isProcessing ? 'processing' : isActive ? 'running' : 'stopped';
-
   return (
-    <button
+    <div
       onClick={onSelect}
-      className="flex items-center gap-2 w-full px-4 py-2 text-left hover:bg-muted/40 transition-colors"
+      className="flex items-center gap-2 px-4 py-2 cursor-pointer hover:bg-muted/40 transition-colors"
     >
-      <StatusDot status={status} />
+      {isActive || isProcessing ? (
+        <Play className="w-3 h-3 text-green-500 fill-green-500 shrink-0" />
+      ) : (
+        <MessageSquare className="w-3 h-3 text-muted-foreground shrink-0" />
+      )}
       <span className="text-xs text-foreground truncate flex-1">
-        {session.title || session.summary || session.id.slice(0, 8)}
+        {session.summary || session.id.slice(0, 8)}
       </span>
-      <span className="text-[10px] text-muted-foreground shrink-0">
+      <span className="text-xs text-muted-foreground shrink-0">
         {formatTime(session.updated_at || session.created_at || session.createdAt)}
       </span>
-    </button>
-  );
-}
-
-// --- Session Row (full, for sessions view) ---
-
-function SessionRowFull({
-  session,
-  projectName,
-  status,
-  isProcessing,
-  onSelect,
-}: {
-  session: ProjectSession;
-  projectName: string;
-  status: 'running' | 'stopped';
-  isProcessing: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      onClick={onSelect}
-      className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-left hover:bg-muted/40 transition-colors group"
-    >
-      <StatusDot status={isProcessing ? 'processing' : status} />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-foreground truncate">
-          {session.title || session.summary || session.id.slice(0, 12)}
-        </p>
-        <p className="text-[11px] text-muted-foreground truncate flex items-center gap-1.5">
-          <Folder className="w-3 h-3 inline shrink-0" />
-          {projectName}
-          {(session.updated_at || session.created_at || session.createdAt) && (
-            <>
-              <Clock className="w-3 h-3 inline shrink-0 ml-1.5" />
-              {formatTime(session.updated_at || session.created_at || session.createdAt)}
-            </>
-          )}
-        </p>
-      </div>
-      {isProcessing && (
-        <div className="w-4 h-4 shrink-0">
-          <div
-            className="w-full h-full rounded-full border-2 border-muted border-t-primary"
-            style={{ animation: 'spin 1s linear infinite' }}
-          />
-        </div>
-      )}
-    </button>
-  );
-}
-
-// --- Status Dot ---
-
-function StatusDot({ status }: { status: 'running' | 'processing' | 'stopped' }) {
-  const colors = {
-    running: 'bg-green-500 shadow-green-500/40',
-    processing: 'bg-amber-500 shadow-amber-500/40 animate-pulse',
-    stopped: 'bg-muted-foreground/40',
-  };
-
-  return (
-    <span className={`w-2 h-2 rounded-full shrink-0 ${colors[status]} ${status !== 'stopped' ? 'shadow-sm' : ''}`} />
+    </div>
   );
 }

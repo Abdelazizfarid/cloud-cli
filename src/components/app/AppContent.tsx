@@ -347,6 +347,12 @@ function AppContentInner() {
               onProjectSelect={(project) => { setForceDashboard(false); handleProjectSelect(project); }}
               onSessionSelect={(session) => { setForceDashboard(false); handleSessionSelect(session); }}
               onProjectDelete={handleDashboardProjectDelete}
+              onProjectArchive={async (projectId) => {
+                try {
+                  const res = await api.archiveProject(projectId);
+                  if (res.ok) handleProjectDelete(projectId);
+                } catch (e) { console.error('Archive failed:', e); }
+              }}
             />
           ) : splitMode && tabs.length > 1 ? (
             <SplitView

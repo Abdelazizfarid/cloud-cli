@@ -589,6 +589,104 @@ app.put('/api/projects/:projectId/file', authenticateToken, async (req, res) => 
     }
 });
 
+// Global CLAUDE.md file management
+app.get('/api/claude-md/global', authenticateToken, async (req, res) => {
+    try {
+        const claudeDir = path.join(WORKSPACES_ROOT, '.claude');
+        const filePath = path.join(claudeDir, 'CLAUDE.md');
+        const content = await fsPromises.readFile(filePath, 'utf8');
+        res.json({ content, path: filePath });
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            res.json({ content: '', path: path.join(WORKSPACES_ROOT, '.claude', 'CLAUDE.md'), isNew: true });
+        } else {
+            res.status(500).json({ error: error.message });
+        }
+    }
+});
+
+app.put('/api/claude-md/global', authenticateToken, async (req, res) => {
+    try {
+        const { content } = req.body;
+        if (content === undefined) return res.status(400).json({ error: 'Content is required' });
+        const claudeDir = path.join(WORKSPACES_ROOT, '.claude');
+        await fsPromises.mkdir(claudeDir, { recursive: true });
+        const filePath = path.join(claudeDir, 'CLAUDE.md');
+        await fsPromises.writeFile(filePath, content, 'utf8');
+        res.json({ success: true, path: filePath });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Project-level CLAUDE.md
+app.get('/api/projects/:projectId/claude-md', authenticateToken, async (req, res) => {
+    try {
+        const projectRoot = await projectsDb.getProjectPathById(req.params.projectId);
+        if (!projectRoot) return res.status(404).json({ error: 'Project not found' });
+        const filePath = path.join(projectRoot, 'CLAUDE.md');
+        const content = await fsPromises.readFile(filePath, 'utf8');
+        res.json({ content, path: filePath });
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            const projectRoot = await projectsDb.getProjectPathById(req.params.projectId);
+            res.json({ content: '', path: path.join(projectRoot || '', 'CLAUDE.md'), isNew: true });
+        } else {
+            res.status(500).json({ error: error.message });
+        }
+    }
+});
+
+app.put('/api/projects/:projectId/claude-md', authenticateToken, async (req, res) => {
+    try {
+        const { content } = req.body;
+        if (content === undefined) return res.status(400).json({ error: 'Content is required' });
+        const projectRoot = await projectsDb.getProjectPathById(req.params.projectId);
+        if (!projectRoot) return res.status(404).json({ error: 'Project not found' });
+        const filePath = path.join(projectRoot, 'CLAUDE.md');
+        await fsPromises.writeFile(filePath, content, 'utf8');
+        res.json({ success: true, path: filePath });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Project-level memory.md (stored in ~/.claude/projects/<encoded-path>/memory)
+app.get('/api/projects/:projectId/memory-md', authenticateToken, async (req, res) => {
+    try {
+        const projectRoot = await projectsDb.getProjectPathById(req.params.projectId);
+        if (!projectRoot) return res.status(404).json({ error: 'Project not found' });
+        const encodedPath = projectRoot.replace(/\//g, '-').replace(/^-/, '');
+        const memoryDir = path.join(WORKSPACES_ROOT, '.claude', 'projects', encodedPath);
+        const filePath = path.join(memoryDir, 'memory');
+        const content = await fsPromises.readFile(filePath, 'utf8');
+        res.json({ content, path: filePath });
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            res.json({ content: '', path: '', isNew: true });
+        } else {
+            res.status(500).json({ error: error.message });
+        }
+    }
+});
+
+app.put('/api/projects/:projectId/memory-md', authenticateToken, async (req, res) => {
+    try {
+        const { content } = req.body;
+        if (content === undefined) return res.status(400).json({ error: 'Content is required' });
+        const projectRoot = await projectsDb.getProjectPathById(req.params.projectId);
+        if (!projectRoot) return res.status(404).json({ error: 'Project not found' });
+        const encodedPath = projectRoot.replace(/\//g, '-').replace(/^-/, '');
+        const memoryDir = path.join(WORKSPACES_ROOT, '.claude', 'projects', encodedPath);
+        await fsPromises.mkdir(memoryDir, { recursive: true });
+        const filePath = path.join(memoryDir, 'memory');
+        await fsPromises.writeFile(filePath, content, 'utf8');
+        res.json({ success: true, path: filePath });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.get('/api/projects/:projectId/files', authenticateToken, async (req, res) => {
     try {
 

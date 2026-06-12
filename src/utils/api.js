@@ -136,6 +136,31 @@ export const api = {
     authenticatedFetch(`/api/projects/${encodeURIComponent(projectId)}/toggle-star`, {
       method: 'POST',
     }),
+  archiveProject: (projectId) =>
+    authenticatedFetch(`/api/projects/${projectId}`, { method: 'DELETE' }),
+  restoreProject: (projectId) =>
+    authenticatedFetch(`/api/projects/${projectId}/restore`, { method: 'POST' }),
+  getGlobalClaudeMd: () =>
+    authenticatedFetch('/api/claude-md/global'),
+  saveGlobalClaudeMd: (content) =>
+    authenticatedFetch('/api/claude-md/global', {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
+  getProjectClaudeMd: (projectId) =>
+    authenticatedFetch(`/api/projects/${projectId}/claude-md`),
+  saveProjectClaudeMd: (projectId, content) =>
+    authenticatedFetch(`/api/projects/${projectId}/claude-md`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
+  getProjectMemory: (projectId) =>
+    authenticatedFetch(`/api/projects/${projectId}/memory-md`),
+  saveProjectMemory: (projectId, content) =>
+    authenticatedFetch(`/api/projects/${projectId}/memory-md`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
   readFile: (projectId, filePath) =>
     authenticatedFetch(`/api/projects/${projectId}/file?filePath=${encodeURIComponent(filePath)}`),
   readFileBlob: (projectId, filePath) =>
