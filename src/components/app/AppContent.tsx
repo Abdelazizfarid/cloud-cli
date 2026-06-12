@@ -1,15 +1,22 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import Sidebar from '../sidebar/view/Sidebar';
 import MainContent from '../main-content/view/MainContent';
 import CommandPalette from '../command-palette/CommandPalette';
+import TabBar from '../tab-bar/TabBar';
+import NewTabPicker from '../tab-bar/NewTabPicker';
+import Dashboard from '../dashboard/Dashboard';
+import SplitView from '../split-view/SplitView';
+import SyncPanel from '../sync/SyncPanel';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { PaletteOpsProvider, usePaletteOpsRegister } from '../../contexts/PaletteOpsContext';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { useSessionProtection } from '../../hooks/useSessionProtection';
 import { useProjectsState } from '../../hooks/useProjectsState';
+import { useTabsState } from '../../hooks/useTabsState';
+import { useUiPreferences } from '../../hooks/useUiPreferences';
 
 export default function AppContent() {
   return (
@@ -24,6 +31,8 @@ function AppContentInner() {
   const { sessionId } = useParams<{ sessionId?: string }>();
   const { t } = useTranslation('common');
   const { isMobile } = useDeviceSettings({ trackPWA: false });
+  const { preferences } = useUiPreferences();
+  const sidebarCollapsed = !isMobile && !preferences.sidebarVisible;
   const { ws, sendMessage, latestMessage, isConnected } = useWebSocket();
   const wasConnectedRef = useRef(false);
 
@@ -37,6 +46,7 @@ function AppContentInner() {
   } = useSessionProtection();
 
   const {
+    projects,
     selectedProject,
     selectedSession,
     activeTab,
@@ -52,6 +62,8 @@ function AppContentInner() {
     refreshProjectsSilently,
     sidebarSharedProps,
     handleNewSession,
+    handleProjectSelect,
+    handleSessionSelect,
   } = useProjectsState({
     sessionId,
     navigate,
@@ -59,6 +71,69 @@ function AppContentInner() {
     isMobile,
     activeSessions,
   });
+
+  const {
+    tabs,
+    activeTab: activeSessionTab,
+    activeTabId,
+    addTab,
+    closeTab,
+    switchTab,
+    updateTabSession,
+    updateTabProject,
+  } = useTabsState();
+
+  const [showNewTabPicker, setShowNewTabPicker] = useState(false);
+  const [forceDashboard, setForceDashboard] = useState(false);
+  const [splitMode, setSplitMode] = useState(false);
+  const [showSyncPanel, setShowSyncPanel] = useState(false);
+
+  // Sync: when user switches session tab, select that tab's project/session
+  const handleTabSwitch = useCallback((tabId: string) => {
+    setForceDashboard(false);
+    setSplitMode(false);
+    switchTab(tabId);
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    const project = projects.find((p) => p.projectId === tab.projectId);
+    if (project) {
+      handleProjectSelect(project);
+      if (tab.sessionId) {
+        const allSessions = [
+          ...(project.sessions ?? []),
+          ...(project.cursorSessions ?? []),
+          ...(project.codexSessions ?? []),
+          ...(project.geminiSessions ?? []),
+          ...(project.opencodeSessions ?? []),
+        ];
+        const session = allSessions.find((s) => s.id === tab.sessionId);
+        if (session) handleSessionSelect(session);
+      }
+    }
+  }, [switchTab, tabs, projects, handleProjectSelect, handleSessionSelect]);
+
+  // Sync: when user selects a session from sidebar, update active tab
+  useEffect(() => {
+    if (!activeSessionTab || !selectedSession) return;
+    if (activeSessionTab.sessionId !== selectedSession.id) {
+      updateTabSession(activeSessionTab.id, selectedSession);
+    }
+  }, [selectedSession, activeSessionTab, updateTabSession]);
+
+  // Sync: when user selects a project from sidebar, update active tab
+  useEffect(() => {
+    if (!activeSessionTab || !selectedProject) return;
+    if (activeSessionTab.projectId !== selectedProject.projectId) {
+      updateTabProject(activeSessionTab.id, selectedProject);
+    }
+  }, [selectedProject, activeSessionTab, updateTabProject]);
+
+  // Auto-create first tab if none exist and a project is loaded
+  useEffect(() => {
+    if (tabs.length === 0 && selectedProject) {
+      addTab(selectedProject, selectedSession);
+    }
+  }, [tabs.length, selectedProject, selectedSession, addTab]);
 
   usePaletteOpsRegister({
     openSettings,
@@ -137,12 +212,56 @@ function AppContentInner() {
     return () => vv.removeEventListener('resize', update);
   }, []);
 
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem('sidebar-width');
+    return saved ? parseInt(saved, 10) : 260;
+  });
+  const isResizing = useRef(false);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizing.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!isResizing.current) return;
+      const newWidth = Math.min(Math.max(ev.clientX, 180), 500);
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      isResizing.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      localStorage.setItem('sidebar-width', String(sidebarWidth));
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [sidebarWidth]);
+
   return (
     <div className="fixed inset-0 flex bg-background" style={{ bottom: 'var(--keyboard-height, 0px)' }}>
       {!isMobile ? (
-        <div className="h-full flex-shrink-0 border-r border-border/50">
-          <Sidebar {...sidebarSharedProps} />
-        </div>
+        <>
+          <div
+            className="h-full flex-shrink-0 border-r border-border/50 transition-[width] duration-150"
+            style={{ width: sidebarCollapsed ? 'auto' : sidebarWidth }}
+          >
+            <Sidebar {...sidebarSharedProps} onSync={() => setShowSyncPanel(true)} />
+          </div>
+          {!sidebarCollapsed && (
+            <div
+              onMouseDown={handleMouseDown}
+              className="relative z-10 h-full w-1 flex-shrink-0 cursor-col-resize group"
+            >
+              <div className="absolute inset-y-0 -left-0.5 w-2 group-hover:bg-primary/20 group-active:bg-primary/30 transition-colors duration-150" />
+            </div>
+          )}
+        </>
       ) : (
         <div
           className={`fixed inset-0 z-50 flex transition-all duration-150 ease-out ${sidebarOpen ? 'visible opacity-100' : 'invisible opacity-0'
@@ -167,36 +286,88 @@ function AppContentInner() {
             onClick={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}
           >
-            <Sidebar {...sidebarSharedProps} />
+            <Sidebar {...sidebarSharedProps} onSync={() => setShowSyncPanel(true)} />
           </div>
         </div>
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <MainContent
-          selectedProject={selectedProject}
-          selectedSession={selectedSession}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          ws={ws}
-          sendMessage={sendMessage}
-          latestMessage={latestMessage}
-          isMobile={isMobile}
-          onMenuClick={() => setSidebarOpen(true)}
-          isLoading={isLoadingProjects}
-          onInputFocusChange={setIsInputFocused}
-          onSessionActive={markSessionAsActive}
-          onSessionInactive={markSessionAsInactive}
-          onSessionProcessing={markSessionAsProcessing}
-          onSessionNotProcessing={markSessionAsNotProcessing}
-          processingSessions={processingSessions}
-          onNavigateToSession={(targetSessionId: string, options) =>
-            navigate(`/session/${targetSessionId}`, { replace: Boolean(options?.replace) })
-          }
-          onShowSettings={() => setShowSettings(true)}
-          externalMessageUpdate={externalMessageUpdate}
-          newSessionTrigger={newSessionTrigger}
-        />
+        {!isMobile && (
+          <TabBar
+            tabs={tabs}
+            activeTabId={activeTabId}
+            showingDashboard={forceDashboard || (!selectedSession && !isLoadingProjects && projects.length > 0)}
+            splitMode={splitMode}
+            onSwitch={handleTabSwitch}
+            onClose={closeTab}
+            onAdd={() => setShowNewTabPicker(true)}
+            onHome={() => { setForceDashboard(true); setSplitMode(false); }}
+            onToggleSplit={() => { setSplitMode((prev) => !prev); setForceDashboard(false); }}
+          />
+        )}
+        <div className="relative flex-1 min-h-0">
+          {showNewTabPicker && (
+            <NewTabPicker
+              projects={projects}
+              onSelect={(project, session) => {
+                addTab(project, session);
+                handleProjectSelect(project);
+                if (session) handleSessionSelect(session);
+                setShowNewTabPicker(false);
+              }}
+              onCancel={() => setShowNewTabPicker(false)}
+            />
+          )}
+          {(forceDashboard || (!selectedSession && !isLoadingProjects)) && projects.length > 0 && !splitMode ? (
+            <Dashboard
+              projects={projects}
+              activeSessions={activeSessions}
+              processingSessions={processingSessions}
+              onProjectSelect={(project) => { setForceDashboard(false); handleProjectSelect(project); }}
+              onSessionSelect={(session) => { setForceDashboard(false); handleSessionSelect(session); }}
+            />
+          ) : splitMode && tabs.length > 1 ? (
+            <SplitView
+              tabs={tabs}
+              activeTabId={activeTabId}
+              projects={projects}
+              ws={ws}
+              sendMessage={sendMessage}
+              latestMessage={latestMessage}
+              processingSessions={processingSessions}
+              onFocusTab={switchTab}
+              onSessionActive={markSessionAsActive}
+              onSessionInactive={markSessionAsInactive}
+              onSessionProcessing={markSessionAsProcessing}
+              onSessionNotProcessing={markSessionAsNotProcessing}
+            />
+          ) : (
+            <MainContent
+              selectedProject={selectedProject}
+              selectedSession={selectedSession}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              ws={ws}
+              sendMessage={sendMessage}
+              latestMessage={latestMessage}
+              isMobile={isMobile}
+              onMenuClick={() => setSidebarOpen(true)}
+              isLoading={isLoadingProjects}
+              onInputFocusChange={setIsInputFocused}
+              onSessionActive={markSessionAsActive}
+              onSessionInactive={markSessionAsInactive}
+              onSessionProcessing={markSessionAsProcessing}
+              onSessionNotProcessing={markSessionAsNotProcessing}
+              processingSessions={processingSessions}
+              onNavigateToSession={(targetSessionId: string, options) =>
+                navigate(`/session/${targetSessionId}`, { replace: Boolean(options?.replace) })
+              }
+              onShowSettings={() => setShowSettings(true)}
+              externalMessageUpdate={externalMessageUpdate}
+              newSessionTrigger={newSessionTrigger}
+            />
+          )}
+        </div>
       </div>
 
       <CommandPalette
@@ -205,6 +376,8 @@ function AppContentInner() {
         onOpenSettings={() => openSettings()}
         onShowTab={setActiveTab}
       />
+
+      {showSyncPanel && <SyncPanel onClose={() => setShowSyncPanel(false)} />}
     </div>
   );
 }

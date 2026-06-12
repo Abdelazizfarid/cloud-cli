@@ -39,6 +39,7 @@ function Sidebar({
   settingsInitialTab,
   onCloseSettings,
   isMobile,
+  onSync,
 }: SidebarProps) {
   const { t } = useTranslation(['sidebar', 'common']);
   const { isPWA } = useDeviceSettings({ trackMobile: false });
@@ -289,6 +290,7 @@ function Sidebar({
             isRefreshing={isRefreshing}
             onCreateProject={() => setShowNewProject(true)}
             onCollapseSidebar={handleCollapseSidebar}
+            onSync={onSync || (() => {})}
             updateAvailable={updateAvailable}
             releaseInfo={releaseInfo}
             latestVersion={latestVersion}

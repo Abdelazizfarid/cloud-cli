@@ -1,4 +1,4 @@
-import { Archive, Folder, FolderPlus, MessageSquare, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
+import { Archive, Cloud, Folder, FolderPlus, MessageSquare, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { Button, Input, Tooltip } from '../../../../shared/view/ui';
 import { IS_PLATFORM } from '../../../../constants/config';
@@ -25,6 +25,7 @@ type SidebarHeaderProps = {
   isRefreshing: boolean;
   onCreateProject: () => void;
   onCollapseSidebar: () => void;
+  onSync: () => void;
   t: TFunction;
 };
 
@@ -44,6 +45,7 @@ export default function SidebarHeader({
   isRefreshing,
   onCreateProject,
   onCollapseSidebar,
+  onSync,
   t,
 }: SidebarHeaderProps) {
   const showSearchTools = (projectsCount > 0 || archivedSessionsCount > 0 || isArchivedSessionsLoading) && !isLoading;
@@ -107,6 +109,15 @@ export default function SidebarHeader({
               title={t('tooltips.createProject')}
             >
               <Plus className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 rounded-lg p-0 text-muted-foreground hover:bg-accent/80 hover:text-foreground"
+              onClick={onSync}
+              title="Sync"
+            >
+              <Cloud className="h-3.5 w-3.5" />
             </Button>
             <Button
               variant="ghost"
