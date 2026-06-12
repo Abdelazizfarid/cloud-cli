@@ -296,7 +296,7 @@ function AppContentInner() {
           <TabBar
             tabs={tabs}
             activeTabId={activeTabId}
-            showingDashboard={forceDashboard || (!selectedSession && !isLoadingProjects && projects.length > 0)}
+            showingDashboard={forceDashboard || (!selectedSession && !isLoadingProjects && activeTab !== 'chat' && projects.length > 0)}
             splitMode={splitMode}
             onSwitch={handleTabSwitch}
             onClose={closeTab}
@@ -318,7 +318,7 @@ function AppContentInner() {
               onCancel={() => setShowNewTabPicker(false)}
             />
           )}
-          {(forceDashboard || (!selectedSession && !isLoadingProjects)) && projects.length > 0 && !splitMode ? (
+          {(forceDashboard || (!selectedSession && !isLoadingProjects && activeTab !== 'chat')) && projects.length > 0 && !splitMode ? (
             <Dashboard
               projects={projects}
               activeSessions={activeSessions}
