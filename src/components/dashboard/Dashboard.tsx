@@ -39,6 +39,115 @@ function formatTime(dateStr?: string): string {
   return `${diffDay}d ago`;
 }
 
+// --- Memory File List Modal ---
+
+function MemoryFileList({
+  title,
+  files,
+  projectId,
+  onClose,
+}: {
+  title: string;
+  files: { name: string; path: string; size: number }[];
+  projectId: string;
+  onClose: () => void;
+}) {
+  const [editingFile, setEditingFile] = useState<{ name: string; content: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const openFile = async (fileName: string) => {
+    try {
+      const res = await api.getProjectMemoryFile(projectId, fileName);
+      const data = await res.json();
+      setEditingFile({ name: fileName, content: data.content || '' });
+    } catch (e) {
+      alert('Failed to load file');
+    }
+  };
+
+  const saveFile = async () => {
+    if (!editingFile) return;
+    setSaving(true);
+    try {
+      const res = await api.saveProjectMemoryFile(projectId, editingFile.name, editingFile.content);
+      if (!res.ok) throw new Error('Save failed');
+      setEditingFile(null);
+    } catch (e) {
+      alert('Failed to save: ' + (e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="flex flex-col w-full max-w-4xl h-[80vh] rounded-xl border border-border bg-card shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <FileText className="w-4 h-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">
+              {editingFile ? `${title} / ${editingFile.name}` : title}
+            </h2>
+          </div>
+          <div className="flex items-center gap-2">
+            {editingFile && (
+              <>
+                <button
+                  onClick={saveFile}
+                  disabled={saving}
+                  className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  {saving ? 'Saving...' : 'Save'}
+                </button>
+                <button
+                  onClick={() => setEditingFile(null)}
+                  className="rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted/50"
+                >
+                  Back
+                </button>
+              </>
+            )}
+            <button onClick={onClose} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted/50">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {editingFile ? (
+          <textarea
+            value={editingFile.content}
+            onChange={(e) => setEditingFile({ ...editingFile, content: e.target.value })}
+            className="flex-1 resize-none bg-background/50 p-4 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+            spellCheck={false}
+          />
+        ) : (
+          <div className="flex-1 overflow-y-auto p-4 space-y-1">
+            {files.map((file) => (
+              <div
+                key={file.name}
+                onClick={() => openFile(file.name)}
+                className="flex items-center gap-3 rounded-lg px-4 py-3 cursor-pointer hover:bg-muted/30 border border-transparent hover:border-border/40 transition-colors"
+              >
+                <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{file.name}</p>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {file.size < 1024 ? `${file.size}B` : `${(file.size / 1024).toFixed(1)}KB`}
+                </span>
+              </div>
+            ))}
+            {files.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-8">No memory files found</p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // --- Markdown Editor Modal ---
 
 function MarkdownEditor({
@@ -112,7 +221,7 @@ export default function Dashboard({
 }: DashboardProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('projects');
   const [expandedProjectId, setExpandedProjectId] = useState<string | null>(null);
-  const [mdEditor, setMdEditor] = useState<{ title: string; content: string; onSave: (c: string) => Promise<void> } | null>(null);
+  const [mdEditor, setMdEditor] = useState<{ title: string; content: string; onSave: (c: string) => Promise<void>; _projectId?: string; _files?: any[] } | null>(null);
 
   const allSessions = useMemo(() => {
     const sessions: (ProjectSession & { _projectName: string })[] = [];
@@ -167,16 +276,19 @@ export default function Dashboard({
     try {
       const res = await api.getProjectMemory(project.projectId);
       const data = await res.json();
+      if (!data.files || data.files.length === 0) {
+        alert('No memory files found for this project');
+        return;
+      }
       setMdEditor({
-        title: `Memory — ${project.displayName}`,
-        content: data.content || '',
-        onSave: async (content: string) => {
-          const saveRes = await api.saveProjectMemory(project.projectId, content);
-          if (!saveRes.ok) throw new Error('Save failed');
-        },
-      });
+        title: `Memory Files — ${project.displayName}`,
+        content: '__FILE_LIST__' + JSON.stringify(data.files),
+        onSave: async () => {},
+        _projectId: project.projectId,
+        _files: data.files,
+      } as any);
     } catch (e) {
-      alert('Failed to load project memory');
+      alert('Failed to load project memory files');
     }
   }, []);
 
@@ -248,14 +360,21 @@ export default function Dashboard({
       </div>
 
       {/* Markdown Editor Modal */}
-      {mdEditor && (
+      {mdEditor && mdEditor._files ? (
+        <MemoryFileList
+          title={mdEditor.title}
+          files={mdEditor._files}
+          projectId={mdEditor._projectId!}
+          onClose={() => setMdEditor(null)}
+        />
+      ) : mdEditor ? (
         <MarkdownEditor
           title={mdEditor.title}
           content={mdEditor.content}
           onSave={mdEditor.onSave}
           onClose={() => setMdEditor(null)}
         />
-      )}
+      ) : null}
     </div>
   );
 }

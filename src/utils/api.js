@@ -156,8 +156,10 @@ export const api = {
     }),
   getProjectMemory: (projectId) =>
     authenticatedFetch(`/api/projects/${projectId}/memory-md`),
-  saveProjectMemory: (projectId, content) =>
-    authenticatedFetch(`/api/projects/${projectId}/memory-md`, {
+  getProjectMemoryFile: (projectId, fileName) =>
+    authenticatedFetch(`/api/projects/${projectId}/memory-md/${encodeURIComponent(fileName)}`),
+  saveProjectMemoryFile: (projectId, fileName, content) =>
+    authenticatedFetch(`/api/projects/${projectId}/memory-md/${encodeURIComponent(fileName)}`, {
       method: 'PUT',
       body: JSON.stringify({ content }),
     }),

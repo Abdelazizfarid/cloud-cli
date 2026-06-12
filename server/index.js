@@ -651,35 +651,66 @@ app.put('/api/projects/:projectId/claude-md', authenticateToken, async (req, res
     }
 });
 
-// Project-level memory.md (stored in ~/.claude/projects/<encoded-path>/memory)
+// Project-level memory files (stored in ~/.claude/projects/<encoded-path>/memory/)
 app.get('/api/projects/:projectId/memory-md', authenticateToken, async (req, res) => {
     try {
         const projectRoot = await projectsDb.getProjectPathById(req.params.projectId);
         if (!projectRoot) return res.status(404).json({ error: 'Project not found' });
         const encodedPath = projectRoot.replace(/\//g, '-').replace(/^-/, '');
-        const memoryDir = path.join(WORKSPACES_ROOT, '.claude', 'projects', encodedPath);
-        const filePath = path.join(memoryDir, 'memory');
+        const memoryDir = path.join(WORKSPACES_ROOT, '.claude', 'projects', '-' + encodedPath, 'memory');
+        try {
+            const entries = await fsPromises.readdir(memoryDir);
+            const files = [];
+            for (const entry of entries) {
+                const filePath = path.join(memoryDir, entry);
+                const stat = await fsPromises.stat(filePath);
+                if (stat.isFile()) {
+                    files.push({ name: entry, path: filePath, size: stat.size });
+                }
+            }
+            res.json({ files, memoryDir });
+        } catch (e) {
+            if (e.code === 'ENOENT') {
+                res.json({ files: [], memoryDir });
+            } else {
+                throw e;
+            }
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/projects/:projectId/memory-md/:fileName', authenticateToken, async (req, res) => {
+    try {
+        const projectRoot = await projectsDb.getProjectPathById(req.params.projectId);
+        if (!projectRoot) return res.status(404).json({ error: 'Project not found' });
+        const encodedPath = projectRoot.replace(/\//g, '-').replace(/^-/, '');
+        const memoryDir = path.join(WORKSPACES_ROOT, '.claude', 'projects', '-' + encodedPath, 'memory');
+        const filePath = path.join(memoryDir, req.params.fileName);
+        if (!filePath.startsWith(memoryDir)) return res.status(403).json({ error: 'Invalid path' });
         const content = await fsPromises.readFile(filePath, 'utf8');
-        res.json({ content, path: filePath });
+        res.json({ content, path: filePath, name: req.params.fileName });
     } catch (error) {
         if (error.code === 'ENOENT') {
-            res.json({ content: '', path: '', isNew: true });
+            res.status(404).json({ error: 'File not found' });
         } else {
             res.status(500).json({ error: error.message });
         }
     }
 });
 
-app.put('/api/projects/:projectId/memory-md', authenticateToken, async (req, res) => {
+app.put('/api/projects/:projectId/memory-md/:fileName', authenticateToken, async (req, res) => {
     try {
         const { content } = req.body;
         if (content === undefined) return res.status(400).json({ error: 'Content is required' });
         const projectRoot = await projectsDb.getProjectPathById(req.params.projectId);
         if (!projectRoot) return res.status(404).json({ error: 'Project not found' });
         const encodedPath = projectRoot.replace(/\//g, '-').replace(/^-/, '');
-        const memoryDir = path.join(WORKSPACES_ROOT, '.claude', 'projects', encodedPath);
+        const memoryDir = path.join(WORKSPACES_ROOT, '.claude', 'projects', '-' + encodedPath, 'memory');
         await fsPromises.mkdir(memoryDir, { recursive: true });
-        const filePath = path.join(memoryDir, 'memory');
+        const filePath = path.join(memoryDir, req.params.fileName);
+        if (!filePath.startsWith(memoryDir)) return res.status(403).json({ error: 'Invalid path' });
         await fsPromises.writeFile(filePath, content, 'utf8');
         res.json({ success: true, path: filePath });
     } catch (error) {
