@@ -54,6 +54,9 @@ function MemoryFileList({
 }) {
   const [editingFile, setEditingFile] = useState<{ name: string; content: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [fileList, setFileList] = useState(files);
+  const [newFileName, setNewFileName] = useState('');
+  const [showNewInput, setShowNewInput] = useState(false);
 
   const openFile = async (fileName: string) => {
     try {
@@ -76,6 +79,22 @@ function MemoryFileList({
       alert('Failed to save: ' + (e as Error).message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const createFile = async () => {
+    const name = newFileName.trim();
+    if (!name) return;
+    const fileName = name.endsWith('.md') ? name : name + '.md';
+    try {
+      const res = await api.saveProjectMemoryFile(projectId, fileName, '');
+      if (!res.ok) throw new Error('Create failed');
+      setFileList([...fileList, { name: fileName, path: '', size: 0 }]);
+      setNewFileName('');
+      setShowNewInput(false);
+      openFile(fileName);
+    } catch (e) {
+      alert('Failed to create file');
     }
   };
 
@@ -123,7 +142,31 @@ function MemoryFileList({
           />
         ) : (
           <div className="flex-1 overflow-y-auto p-4 space-y-1">
-            {files.map((file) => (
+            <div className="flex items-center gap-2 mb-3">
+              {showNewInput ? (
+                <div className="flex items-center gap-2 flex-1">
+                  <input
+                    type="text"
+                    value={newFileName}
+                    onChange={(e) => setNewFileName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') createFile(); if (e.key === 'Escape') setShowNewInput(false); }}
+                    placeholder="filename.md"
+                    className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    autoFocus
+                  />
+                  <button onClick={createFile} className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90">Create</button>
+                  <button onClick={() => setShowNewInput(false)} className="rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted/50">Cancel</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowNewInput(true)}
+                  className="flex items-center gap-1.5 rounded-md border border-dashed border-border/60 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+                >
+                  + New Memory File
+                </button>
+              )}
+            </div>
+            {fileList.map((file) => (
               <div
                 key={file.name}
                 onClick={() => openFile(file.name)}
@@ -138,7 +181,7 @@ function MemoryFileList({
                 </span>
               </div>
             ))}
-            {files.length === 0 && (
+            {fileList.length === 0 && (
               <p className="text-sm text-muted-foreground text-center py-8">No memory files found</p>
             )}
           </div>
