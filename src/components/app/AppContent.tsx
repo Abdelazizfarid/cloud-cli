@@ -17,6 +17,7 @@ import { useSessionProtection } from '../../hooks/useSessionProtection';
 import { useProjectsState } from '../../hooks/useProjectsState';
 import { useTabsState } from '../../hooks/useTabsState';
 import { useUiPreferences } from '../../hooks/useUiPreferences';
+import api from '../../utils/api';
 
 export default function AppContent() {
   return (
@@ -64,6 +65,7 @@ function AppContentInner() {
     handleNewSession,
     handleProjectSelect,
     handleSessionSelect,
+    handleProjectDelete,
   } = useProjectsState({
     sessionId,
     navigate,
@@ -111,6 +113,17 @@ function AppContentInner() {
       }
     }
   }, [switchTab, tabs, projects, handleProjectSelect, handleSessionSelect]);
+
+  const handleDashboardProjectDelete = useCallback(async (projectId: string, force: boolean) => {
+    try {
+      const response = await api.deleteProject(projectId, force);
+      if (response.ok) {
+        handleProjectDelete(projectId);
+      }
+    } catch (e) {
+      console.error('Failed to delete project:', e);
+    }
+  }, [handleProjectDelete]);
 
   // Sync: when user selects a session from sidebar, update active tab
   useEffect(() => {
@@ -173,6 +186,14 @@ function AppContentInner() {
       navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
     };
   }, [navigate, refreshProjectsSilently, setActiveTab, setSidebarOpen]);
+
+  // Refresh projects when active sessions change (new session created)
+  useEffect(() => {
+    if (activeSessions.size > 0) {
+      const timer = setTimeout(() => void refreshProjectsSilently(), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [activeSessions.size, refreshProjectsSilently]);
 
   // Permission recovery: query pending permissions on WebSocket reconnect or session change
   useEffect(() => {
@@ -325,6 +346,7 @@ function AppContentInner() {
               processingSessions={processingSessions}
               onProjectSelect={(project) => { setForceDashboard(false); handleProjectSelect(project); }}
               onSessionSelect={(session) => { setForceDashboard(false); handleSessionSelect(session); }}
+              onProjectDelete={handleDashboardProjectDelete}
             />
           ) : splitMode && tabs.length > 1 ? (
             <SplitView

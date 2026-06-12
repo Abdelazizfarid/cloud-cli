@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Folder, MessageSquare, Play, Square, Clock, LayoutGrid, List } from 'lucide-react';
+import { Folder, MessageSquare, Play, Square, Clock, LayoutGrid, List, Trash2 } from 'lucide-react';
 import type { Project, ProjectSession } from '../../types/app';
 
 type ViewMode = 'projects' | 'sessions';
@@ -10,6 +10,7 @@ interface DashboardProps {
   processingSessions: Set<string>;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession) => void;
+  onProjectDelete?: (projectId: string, force: boolean) => void;
 }
 
 function getAllSessions(project: Project): ProjectSession[] {
@@ -42,6 +43,7 @@ export default function Dashboard({
   processingSessions,
   onProjectSelect,
   onSessionSelect,
+  onProjectDelete,
 }: DashboardProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('projects');
   const [expandedProjectId, setExpandedProjectId] = useState<string | null>(null);
@@ -174,6 +176,18 @@ function ProjectsView({
                   )}
                 </p>
               </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onProjectDelete && confirm(`Delete project "${project.displayName}" and all its sessions?`)) {
+                    onProjectDelete(project.projectId, true);
+                  }
+                }}
+                className="text-xs text-red-500 hover:text-red-400 shrink-0 p-1"
+                title="Delete project"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
               <button
                 onClick={(e) => { e.stopPropagation(); onProjectSelect(project); }}
                 className="text-xs text-primary hover:underline shrink-0"
