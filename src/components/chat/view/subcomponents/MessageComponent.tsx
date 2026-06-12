@@ -108,15 +108,31 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
     <div
       ref={messageRef}
       data-message-timestamp={message.timestamp || undefined}
-      className={`chat-message ${message.type} ${isGrouped ? 'grouped' : ''} ${message.type === 'user' ? 'flex justify-end px-3 sm:px-0' : 'px-3 sm:px-0'}`}
+      className={`chat-message ${message.type} ${isGrouped ? 'grouped' : ''} ${message.type === 'user' && !message.isAgentPrompt ? 'flex justify-end px-3 sm:px-0' : 'px-3 sm:px-0'}`}
     >
       {message.type === 'user' ? (
         /* User message bubble on the right */
-        <div className="flex w-full items-end space-x-0 sm:w-auto sm:max-w-[85%] sm:space-x-3 md:max-w-md lg:max-w-lg xl:max-w-xl">
-          <div className="group flex-1 rounded-2xl rounded-br-md bg-blue-600 px-3 py-2 text-white shadow-sm sm:flex-initial sm:px-4">
-            <div dir="auto" className="whitespace-pre-wrap break-words text-sm">
-              {message.content}
-            </div>
+        <div className={`flex w-full items-end space-x-0 sm:w-auto sm:max-w-[85%] sm:space-x-3 md:max-w-md lg:max-w-lg xl:max-w-xl ${message.isAgentPrompt ? 'justify-start' : ''}`}>
+          <div className={`group flex-1 rounded-2xl px-3 py-2 shadow-sm sm:flex-initial sm:px-4 ${
+            message.isAgentPrompt
+              ? 'rounded-bl-md border border-purple-500/30 bg-purple-900/40 text-purple-100'
+              : 'rounded-br-md bg-blue-600 text-white'
+          }`}>
+            {message.isAgentPrompt ? (
+              <details className="group/details">
+                <summary className="mb-1 flex cursor-pointer items-center gap-1 text-xs font-medium text-purple-300 select-none">
+                  <span className="transition-transform group-open/details:rotate-90">▶</span> Agent Prompt
+                  <span className="ml-1 text-purple-400/60">({(message.content || '').length} chars)</span>
+                </summary>
+                <div dir="auto" className="mt-1 max-h-60 overflow-y-auto whitespace-pre-wrap break-words text-sm">
+                  {message.content}
+                </div>
+              </details>
+            ) : (
+              <div dir="auto" className="whitespace-pre-wrap break-words text-sm">
+                {message.content}
+              </div>
+            )}
             {message.images && message.images.length > 0 && (
               <div className="mt-2 grid grid-cols-2 gap-2">
                 {message.images.map((img, idx) => (
@@ -130,14 +146,14 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
                 ))}
               </div>
             )}
-            <div className="mt-1 flex items-center justify-end gap-1 text-xs text-blue-100">
+            <div className={`mt-1 flex items-center justify-end gap-1 text-xs ${message.isAgentPrompt ? 'text-purple-300' : 'text-blue-100'}`}>
               {shouldShowUserCopyControl && (
                 <MessageCopyControl content={userCopyContent} messageType="user" />
               )}
               <span>{formattedTime}</span>
             </div>
           </div>
-          {!isGrouped && (
+          {!isGrouped && !message.isAgentPrompt && (
             <div className="hidden h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm text-white sm:flex">
               U
             </div>
@@ -397,6 +413,26 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
                   }
 
                   // Normal rendering for non-JSON content
+                  const isRawOutput = content.length > 500 &&
+                    !content.includes('## ') &&
+                    !content.includes('### ') &&
+                    (content.split('\n').length > 20 || content.match(/^[\d\s|:\/\-\.a-zA-Z_{}()\[\],;=<>*&^%$#@!~`'"\\]+$/m));
+                  if (message.type === 'assistant' && isRawOutput) {
+                    return (
+                      <details className="group/long">
+                        <summary className="flex cursor-pointer items-center gap-1 text-xs text-gray-500 dark:text-gray-400 select-none">
+                          <span className="transition-transform group-open/long:rotate-90">▶</span>
+                          <span>Output</span>
+                          <span className="text-gray-400 dark:text-gray-500">({content.split('\n').length} lines)</span>
+                        </summary>
+                        <div className="mt-1 max-h-96 overflow-y-auto">
+                          <Markdown className="prose prose-sm prose-gray max-w-none dark:prose-invert">
+                            {content}
+                          </Markdown>
+                        </div>
+                      </details>
+                    );
+                  }
                   return message.type === 'assistant' ? (
                     <Markdown className="prose prose-sm prose-gray max-w-none dark:prose-invert">
                       {content}

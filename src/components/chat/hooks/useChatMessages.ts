@@ -37,6 +37,8 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
     }
   }
 
+  let lastToolWasTask = false;
+
   for (const msg of messages) {
     const sharedMetadata = {
       displayText: msg.displayText,
@@ -67,10 +69,12 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
               ...sharedMetadata,
             });
           } else {
+            const isAgentPrompt = lastToolWasTask || content.length > 300;
             converted.push({
               type: 'user',
               content: unescapeWithMathProtection(decodeHtmlEntities(content)),
               timestamp: msg.timestamp,
+              isAgentPrompt,
               ...sharedMetadata,
             });
           }
@@ -85,12 +89,14 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
             ...sharedMetadata,
           });
         }
+        lastToolWasTask = false;
         break;
       }
 
       case 'tool_use': {
         const tr = msg.toolResult || (msg.toolId ? toolResultMap.get(msg.toolId) : null);
         const isSubagentContainer = msg.toolName === 'Task';
+        lastToolWasTask = isSubagentContainer;
 
         // Build child tools from subagentTools
         const childTools: SubagentChildTool[] = [];
