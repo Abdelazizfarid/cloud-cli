@@ -17,7 +17,7 @@ import { useSessionProtection } from '../../hooks/useSessionProtection';
 import { useProjectsState } from '../../hooks/useProjectsState';
 import { useTabsState } from '../../hooks/useTabsState';
 import { useUiPreferences } from '../../hooks/useUiPreferences';
-import api from '../../utils/api';
+import { api } from '../../utils/api';
 
 export default function AppContent() {
   return (

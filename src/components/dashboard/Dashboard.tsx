@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Folder, MessageSquare, Play, Square, Clock, LayoutGrid, List, Trash2, Archive, FileText, X, Save, ChevronDown, ChevronRight, Globe } from 'lucide-react';
 import type { Project, ProjectSession } from '../../types/app';
-import api from '../../utils/api';
+import { api } from '../../utils/api';
 
 type ViewMode = 'projects' | 'sessions';
 
