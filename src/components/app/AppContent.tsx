@@ -136,19 +136,21 @@ function AppContentInner() {
 
   // Sync: when user selects a session from sidebar, update active tab
   useEffect(() => {
+    if (splitMode) return;
     if (!activeSessionTab || !selectedSession) return;
     if (activeSessionTab.sessionId !== selectedSession.id) {
       updateTabSession(activeSessionTab.id, selectedSession);
     }
-  }, [selectedSession, activeSessionTab, updateTabSession]);
+  }, [selectedSession, activeSessionTab, updateTabSession, splitMode]);
 
   // Sync: when user selects a project from sidebar, update active tab
   useEffect(() => {
+    if (splitMode) return;
     if (!activeSessionTab || !selectedProject) return;
     if (activeSessionTab.projectId !== selectedProject.projectId) {
       updateTabProject(activeSessionTab.id, selectedProject);
     }
-  }, [selectedProject, activeSessionTab, updateTabProject]);
+  }, [selectedProject, activeSessionTab, updateTabProject, splitMode]);
 
   // Auto-create first tab if none exist and a project is loaded
   useEffect(() => {
