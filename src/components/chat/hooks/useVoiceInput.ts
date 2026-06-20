@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
-const DEFAULT_GEMINI_API_KEY = 'AIzaSyDx5qr9TynbTYdhw5HLq7FApZVZkFObFm0';
+const DEFAULT_GEMINI_API_KEY = 'AIzaSyBj7OdYhE-GJXk1vPr9NcgZec5NUfi_O3I';
 const GEMINI_API_KEY = (import.meta.env.VITE_GEMINI_API_KEY || DEFAULT_GEMINI_API_KEY).trim();
 const GEMINI_MODEL = (import.meta.env.VITE_GEMINI_TRANSCRIBE_MODEL || 'gemini-2.5-flash').trim();
 const GEMINI_URL = GEMINI_API_KEY
