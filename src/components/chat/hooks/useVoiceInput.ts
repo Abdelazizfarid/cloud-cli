@@ -99,7 +99,7 @@ export function useVoiceInput(onTranscription: (text: string) => void) {
                   },
                 },
                 {
-                  text: 'Transcribe this audio. If not English, translate to English. Return only the final transcript text with no labels.',
+                  text: 'Transcribe this audio and output English text only. If speech is not English, translate it to English. Never include Arabic or bilingual output. Return only the final transcript sentence(s) with no labels or prefixes.',
                 },
               ],
             },
@@ -169,10 +169,39 @@ function extractGeminiText(data: unknown): string {
 }
 
 function cleanTranscript(text: string): string {
-  return text
+  const cleaned = text
     .replace(/^transcript:\s*/i, '')
     .replace(/^transcription:\s*/i, '')
     .trim();
+
+  const hasArabic = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(cleaned);
+  const hasLatin = /[A-Za-z]/.test(cleaned);
+
+  if (hasArabic && hasLatin) {
+    const lines = cleaned
+      .split(/\r?\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const englishOnlyLines = lines.filter(
+      (line) => /[A-Za-z]/.test(line) && !/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(line),
+    );
+
+    if (englishOnlyLines.length > 0) {
+      return englishOnlyLines.join(' ').replace(/\s+/g, ' ').trim();
+    }
+
+    const strippedArabic = cleaned
+      .replace(/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (/[A-Za-z]/.test(strippedArabic)) {
+      return strippedArabic;
+    }
+  }
+
+  return cleaned;
 }
 
 function blobToBase64(blob: Blob): Promise<string> {
