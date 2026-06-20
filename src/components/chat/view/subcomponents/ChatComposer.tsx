@@ -54,6 +54,7 @@ interface ChatComposerProps {
   handleGrantToolPermission: (suggestion: { entry: string; toolName: string }) => { success: boolean };
   claudeStatus: { text: string; tokens: number; can_interrupt: boolean } | null;
   isLoading: boolean;
+  processingStartTime?: number | null;
   onAbortSession: () => void;
   provider: Provider | string;
   permissionMode: PermissionMode | string;
@@ -108,6 +109,7 @@ export default function ChatComposer({
   handleGrantToolPermission,
   claudeStatus,
   isLoading,
+  processingStartTime,
   onAbortSession,
   provider,
   permissionMode,
@@ -188,6 +190,7 @@ export default function ChatComposer({
         <ClaudeStatus
           status={claudeStatus}
           isLoading={isLoading}
+          startedAt={processingStartTime}
           onAbort={onAbortSession}
           provider={provider}
         />

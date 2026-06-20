@@ -274,4 +274,23 @@ router.post('/push/unsubscribe', async (req, res) => {
   }
 });
 
+router.post('/push/test', async (req, res) => {
+  try {
+    const event = createNotificationEvent({
+      provider: 'claude',
+      sessionId: null,
+      kind: 'info',
+      code: 'push.enabled',
+      meta: { message: 'Test notification — push is working!' },
+      severity: 'info',
+      dedupeKey: `test:${Date.now()}`
+    });
+    notifyUserIfEnabled({ userId: req.user.id, event });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error sending test push:', error);
+    res.status(500).json({ error: 'Failed to send test notification' });
+  }
+});
+
 export default router;

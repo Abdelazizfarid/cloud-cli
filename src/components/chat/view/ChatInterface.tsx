@@ -94,6 +94,8 @@ function ChatInterface({
     addMessage,
     isLoading,
     setIsLoading,
+    processingStartTime,
+    setProcessingStartTime,
     currentSessionId,
     setCurrentSessionId,
     isLoadingSessionMessages,
@@ -205,6 +207,7 @@ function ChatInterface({
     scrollToBottom,
     addMessage,
     setIsLoading,
+    setProcessingStartTime,
     setCanAbortSession,
     setClaudeStatus,
     setIsUserScrolledUp,
@@ -364,6 +367,7 @@ function ChatInterface({
           handleGrantToolPermission={handleGrantToolPermission}
           claudeStatus={claudeStatus}
           isLoading={isLoading}
+          processingStartTime={processingStartTime}
           onAbortSession={handleAbortSession}
           provider={provider}
           permissionMode={permissionMode}

@@ -1,10 +1,8 @@
-import { Archive, Cloud, Folder, FolderPlus, MessageSquare, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
+import { Activity, Archive, Bot, Folder, FolderPlus, Plus, RefreshCw, Search, Settings, X, PanelLeftClose } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { Button, Input, Tooltip } from '../../../../shared/view/ui';
-import { IS_PLATFORM } from '../../../../constants/config';
 import { cn } from '../../../../lib/utils';
 import type { SidebarSearchMode } from '../../types/types';
-import GitHubStarBadge from './GitHubStarBadge';
 
 const MOD_KEY =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
@@ -25,7 +23,7 @@ type SidebarHeaderProps = {
   isRefreshing: boolean;
   onCreateProject: () => void;
   onCollapseSidebar: () => void;
-  onSync: () => void;
+  onShowSettings: () => void;
   t: TFunction;
 };
 
@@ -45,7 +43,7 @@ export default function SidebarHeader({
   isRefreshing,
   onCreateProject,
   onCollapseSidebar,
-  onSync,
+  onShowSettings,
   t,
 }: SidebarHeaderProps) {
   const showSearchTools = (projectsCount > 0 || archivedSessionsCount > 0 || isArchivedSessionsLoading) && !isLoading;
@@ -55,17 +53,6 @@ export default function SidebarHeader({
       ? t('search.archivedPlaceholder', 'Search archived sessions...')
       : t('projects.searchPlaceholder');
 
-  const LogoBlock = () => (
-    <div className="flex min-w-0 items-center gap-2.5">
-      <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-primary/90 shadow-sm">
-        <svg className="h-3.5 w-3.5 text-primary-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-        </svg>
-      </div>
-      <h1 className="truncate text-sm font-semibold tracking-tight text-foreground">{t('app.title')}</h1>
-    </div>
-  );
-
   return (
     <div className="flex-shrink-0">
       {/* Desktop header */}
@@ -74,18 +61,6 @@ export default function SidebarHeader({
         style={{}}
       >
         <div className="flex items-center justify-between gap-2">
-          {IS_PLATFORM ? (
-            <a
-              href="https://cloudcli.ai/dashboard"
-              className="flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-80"
-              title={t('tooltips.viewEnvironments')}
-            >
-              <LogoBlock />
-            </a>
-          ) : (
-            <LogoBlock />
-          )}
-
           <div className="flex flex-shrink-0 items-center gap-0.5">
             <Button
               variant="ghost"
@@ -114,10 +89,19 @@ export default function SidebarHeader({
               variant="ghost"
               size="sm"
               className="h-7 w-7 rounded-lg p-0 text-muted-foreground hover:bg-accent/80 hover:text-foreground"
-              onClick={onSync}
-              title="Sync"
+              onClick={() => window.open('https://agents.hooktrack.life', '_blank')}
+              title="Agent Control Plane"
             >
-              <Cloud className="h-3.5 w-3.5" />
+              <Bot className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 rounded-lg p-0 text-muted-foreground hover:bg-accent/80 hover:text-foreground"
+              onClick={onShowSettings}
+              title={t('actions.settings')}
+            >
+              <Settings className="h-3.5 w-3.5" />
             </Button>
             <Button
               variant="ghost"
@@ -130,8 +114,6 @@ export default function SidebarHeader({
             </Button>
           </div>
         </div>
-
-        <GitHubStarBadge />
 
         {/* Search bar */}
         {showSearchTools && (
@@ -161,7 +143,7 @@ export default function SidebarHeader({
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                <MessageSquare className="h-3 w-3" />
+                <Activity className="h-3 w-3" />
                 {t('search.modeConversations')}
               </button>
               <Tooltip content={t('search.archiveOnlyTooltip', 'Archive only')} position="top">
@@ -222,18 +204,6 @@ export default function SidebarHeader({
         style={isPWA && isMobile ? { paddingTop: '16px' } : {}}
       >
         <div className="flex items-center justify-between">
-          {IS_PLATFORM ? (
-            <a
-              href="https://cloudcli.ai/dashboard"
-              className="flex min-w-0 items-center gap-2.5 transition-opacity active:opacity-70"
-              title={t('tooltips.viewEnvironments')}
-            >
-              <LogoBlock />
-            </a>
-          ) : (
-            <LogoBlock />
-          )}
-
           <div className="flex flex-shrink-0 gap-1.5">
             <button
               className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/50 transition-all active:scale-95"
@@ -278,7 +248,7 @@ export default function SidebarHeader({
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                <MessageSquare className="h-3 w-3" />
+                <Activity className="h-3 w-3" />
                 {t('search.modeConversations')}
               </button>
               <Tooltip content={t('search.archiveOnlyTooltip', 'Archive only')} position="top">

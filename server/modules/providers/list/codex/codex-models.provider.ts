@@ -21,13 +21,13 @@ import {
 
 export const CODEX_FALLBACK_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
-    { value: 'gpt-5.5', label: 'gpt-5.5' },
-    { value: 'gpt-5.4', label: 'gpt-5.4' },
-    { value: 'gpt-5.4-mini', label: 'gpt-5.4-mini' },
-    { value: 'gpt-5.3-codex', label: 'gpt-5.3-codex' },
-    { value: 'gpt-5.2', label: 'gpt-5.2' },
+    { value: 'gpt-5.5', label: 'GPT-5.5' },
+    { value: 'gpt-5.4', label: 'GPT-5.4' },
+    { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
+    { value: 'o3', label: 'o3' },
+    { value: 'o4-mini', label: 'o4-mini' },
   ],
-  DEFAULT: 'gpt-5.4',
+  DEFAULT: 'gpt-5.5',
 };
 
 type CodexCachedModel = {

@@ -1,16 +1,14 @@
-import { type ReactNode } from 'react';
-import { Archive, Folder, MessageSquare, RotateCcw, Search, Trash2 } from 'lucide-react';
+import { type ReactNode, useMemo } from 'react';
+import { Archive, Folder, MessageSquare, RotateCcw, Search, Trash2, Activity } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { ScrollArea } from '../../../../shared/view/ui';
 import type { Project } from '../../../../types/app';
-import type { ReleaseInfo } from '../../../../types/sharedTypes';
 import type { ConversationSearchResults, SearchProgress } from '../../hooks/useSidebarController';
 import type { ArchivedProjectListItem, ArchivedSessionListItem, SidebarSearchMode } from '../../types/types';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
-import SidebarFooter from './SidebarFooter';
 import SidebarHeader from './SidebarHeader';
 import SidebarProjectList, { type SidebarProjectListProps } from './SidebarProjectList';
-import { getAllSessions } from '../../utils/utils';
+import { getAllSessions, getSessionDate } from '../../utils/utils';
 
 function HighlightedSnippet({ snippet, highlights }: { snippet: string; highlights: { start: number; end: number }[] }) {
   const parts: ReactNode[] = [];
@@ -109,6 +107,81 @@ function formatCompactArchivedAge(dateString: string | null): string {
   return `${Math.floor(diffInHours / 24)}d`;
 }
 
+function ActiveSessionsList({
+  projects,
+  projectListProps,
+}: {
+  projects: Project[];
+  projectListProps: SidebarProjectListProps;
+}) {
+  const allSessions = useMemo(() => {
+    const now = Date.now();
+    const sessions: { session: import('../../types/types').SessionWithProvider; projectName: string; projectDisplayName: string; isActive: boolean }[] = [];
+    for (const project of projects) {
+      const projectSessions = projectListProps.getProjectSessions(project);
+      const displayName = project.displayName || '';
+      const name = project.projectId || '';
+      for (const s of projectSessions) {
+        const date = getSessionDate(s);
+        const isActive = (now - date.getTime()) < 30 * 1000;
+        sessions.push({ session: s, projectName: name, projectDisplayName: displayName, isActive });
+      }
+    }
+    sessions.sort((a, b) => getSessionDate(b.session).getTime() - getSessionDate(a.session).getTime());
+    return sessions;
+  }, [projects, projectListProps]);
+
+  if (allSessions.length === 0) {
+    return (
+      <div className="px-4 py-12 text-center md:py-8">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-muted md:mb-3">
+          <Activity className="h-6 w-6 text-muted-foreground" />
+        </div>
+        <h3 className="mb-2 text-base font-medium text-foreground md:mb-1">No sessions</h3>
+        <p className="text-sm text-muted-foreground">Your sessions will appear here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-0.5 px-1">
+      {allSessions.map(({ session, projectName, projectDisplayName, isActive }) => (
+        <button
+          key={`${session.__provider}-${session.id}`}
+          className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-accent/50 ${
+            isActive
+              ? 'border border-green-500/30 bg-green-50/5 dark:bg-green-900/5'
+              : 'border border-transparent'
+          }`}
+          onClick={() => projectListProps.onSessionSelect(session, projectName)}
+        >
+          <div className="relative flex-shrink-0">
+            <SessionProviderLogo provider={session.__provider} className="h-4 w-4" />
+            {isActive && (
+              <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-green-500 ring-1 ring-background animate-pulse" />
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="truncate text-xs font-medium text-foreground">
+                {session.summary || session.name || session.title || String(session.id).slice(0, 8)}
+              </span>
+              {isActive && (
+                <span className="ml-auto flex-shrink-0 text-[10px] text-green-500 font-medium">
+                  Active
+                </span>
+              )}
+            </div>
+            <p className="mt-0.5 truncate text-[11px] text-muted-foreground/70">
+              {projectDisplayName}
+            </p>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 type SidebarContentProps = {
   isPWA: boolean;
   isMobile: boolean;
@@ -137,12 +210,6 @@ type SidebarContentProps = {
   isRefreshing: boolean;
   onCreateProject: () => void;
   onCollapseSidebar: () => void;
-  onSync: () => void;
-  updateAvailable: boolean;
-  releaseInfo: ReleaseInfo | null;
-  latestVersion: string | null;
-  currentVersion: string;
-  onShowVersionModal: () => void;
   onShowSettings: () => void;
   projectListProps: SidebarProjectListProps;
   t: TFunction;
@@ -174,12 +241,6 @@ export default function SidebarContent({
   isRefreshing,
   onCreateProject,
   onCollapseSidebar,
-  onSync,
-  updateAvailable,
-  releaseInfo,
-  latestVersion,
-  currentVersion,
-  onShowVersionModal,
   onShowSettings,
   projectListProps,
   t,
@@ -209,7 +270,7 @@ export default function SidebarContent({
         isRefreshing={isRefreshing}
         onCreateProject={onCreateProject}
         onCollapseSidebar={onCollapseSidebar}
-        onSync={onSync}
+        onShowSettings={onShowSettings}
         t={t}
       />
 
@@ -511,20 +572,15 @@ export default function SidebarContent({
               ))}
             </div>
           )
+        ) : searchMode === 'conversations' ? (
+          <ActiveSessionsList
+            projects={projects}
+            projectListProps={projectListProps}
+          />
         ) : (
           <SidebarProjectList {...projectListProps} />
         )}
       </ScrollArea>
-
-      <SidebarFooter
-        updateAvailable={updateAvailable}
-        releaseInfo={releaseInfo}
-        latestVersion={latestVersion}
-        currentVersion={currentVersion}
-        onShowVersionModal={onShowVersionModal}
-        onShowSettings={onShowSettings}
-        t={t}
-      />
     </div>
   );
 }

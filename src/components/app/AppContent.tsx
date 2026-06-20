@@ -283,7 +283,7 @@ function AppContentInner() {
             className="h-full flex-shrink-0 border-r border-border/50 transition-[width] duration-150"
             style={{ width: sidebarCollapsed ? 'auto' : sidebarWidth }}
           >
-            <Sidebar {...sidebarSharedProps} onSync={() => setShowSyncPanel(true)} />
+            <Sidebar {...sidebarSharedProps} />
           </div>
           {!sidebarCollapsed && (
             <div
@@ -318,7 +318,7 @@ function AppContentInner() {
             onClick={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}
           >
-            <Sidebar {...sidebarSharedProps} onSync={() => setShowSyncPanel(true)} />
+            <Sidebar {...sidebarSharedProps} />
           </div>
         </div>
       )}

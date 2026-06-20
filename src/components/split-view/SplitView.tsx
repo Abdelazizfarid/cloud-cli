@@ -11,7 +11,7 @@ interface SplitViewProps {
   ws: WebSocket | null;
   sendMessage: (message: unknown) => void;
   latestMessage: unknown;
-  processingSessions: Set<string>;
+  processingSessions: Map<string, number>;
   onFocusTab: (tabId: string) => void;
   onSessionActive: (sessionId?: string | null) => void;
   onSessionInactive: (sessionId?: string | null) => void;
@@ -98,7 +98,7 @@ function SplitPane({
   ws: WebSocket | null;
   sendMessage: (message: unknown) => void;
   latestMessage: unknown;
-  processingSessions: Set<string>;
+  processingSessions: Map<string, number>;
   onFocus: () => void;
   onSessionActive: (sessionId?: string | null) => void;
   onSessionInactive: (sessionId?: string | null) => void;

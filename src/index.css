@@ -85,37 +85,37 @@
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 217.2 91.2% 8%;
-    --card-foreground: 210 40% 98%;
-    --popover: 217.2 91.2% 8%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 220 13% 46%;
-    --ring: 217.2 91.2% 59.8%;
+    --background: 224 12% 7%;
+    --foreground: 210 20% 96%;
+    --card: 224 12% 10%;
+    --card-foreground: 210 20% 96%;
+    --popover: 224 12% 11%;
+    --popover-foreground: 210 20% 96%;
+    --primary: 217 92% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 13% 15%;
+    --secondary-foreground: 210 20% 96%;
+    --muted: 220 12% 14%;
+    --muted-foreground: 215 14% 60%;
+    --accent: 220 13% 17%;
+    --accent-foreground: 210 20% 96%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 10% 20%;
+    --input: 220 10% 20%;
+    --ring: 217 92% 60%;
 
     /* Nav design tokens — dark overrides */
-    --nav-glass-bg: 217.2 91.2% 8% / 0.55;
+    --nav-glass-bg: 224 12% 10% / 0.6;
     --nav-glass-blur: 24px;
-    --nav-glass-saturate: 1.6;
-    --nav-tab-glow: 217.2 91.2% 59.8% / 0.25;
-    --nav-tab-ring: 217.2 91.2% 59.8% / 0.15;
-    --nav-float-shadow: 0 0% 0% / 0.35;
-    --nav-float-ring: 217.2 32.6% 17.5% / 0.3;
-    --nav-divider-color: 217.2 32.6% 17.5% / 0.5;
-    --nav-input-bg: 217.2 32.6% 17.5% / 0.5;
-    --nav-input-focus-ring: 217.2 91.2% 59.8% / 0.25;
+    --nav-glass-saturate: 1.4;
+    --nav-tab-glow: 217 92% 60% / 0.2;
+    --nav-tab-ring: 217 92% 60% / 0.12;
+    --nav-float-shadow: 0 0% 0% / 0.4;
+    --nav-float-ring: 220 10% 20% / 0.4;
+    --nav-divider-color: 220 10% 20% / 0.6;
+    --nav-input-bg: 220 12% 14% / 0.6;
+    --nav-input-focus-ring: 217 92% 60% / 0.22;
   }
 }
 
@@ -933,4 +933,41 @@
       background-color: transparent;
     }
   }
+}
+
+/* Smooth message appearance animation */
+@keyframes messageSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+    filter: blur(2px);
+  }
+  60% {
+    opacity: 0.8;
+    transform: translateY(2px) scale(0.995);
+    filter: blur(0.5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+.chat-message {
+  animation: messageSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.chat-message.user {
+  animation-duration: 0.3s;
+}
+
+/* Stagger consecutive messages slightly */
+.chat-message + .chat-message {
+  animation-delay: 0.05s;
+}
+
+/* Smooth streaming text appearance */
+.chat-message.assistant .whitespace-pre-wrap {
+  transition: all 0.15s ease-out;
 }

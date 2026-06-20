@@ -24,7 +24,7 @@ interface UseChatSessionStateArgs {
   autoScrollToBottom?: boolean;
   externalMessageUpdate?: number;
   newSessionTrigger?: number;
-  processingSessions?: Set<string>;
+  processingSessions?: Map<string, number>;
   resetStreamingState: () => void;
   pendingViewSessionRef: MutableRefObject<PendingViewSession | null>;
   sessionStore: SessionStore;
@@ -83,6 +83,7 @@ function chatMessageToNormalized(
     kind: 'text',
     role: msg.type === 'user' ? 'user' : 'assistant',
     content: msg.content || '',
+    images: msg.images?.map(img => img.data),
   } as NormalizedMessage;
 }
 
@@ -104,6 +105,7 @@ export function useChatSessionState({
   sessionStore,
 }: UseChatSessionStateArgs) {
   const [isLoading, setIsLoading] = useState(false);
+  const [processingStartTime, setProcessingStartTime] = useState<number | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(selectedSession?.id || null);
   const [isLoadingSessionMessages, setIsLoadingSessionMessages] = useState(false);
   const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
@@ -247,19 +249,32 @@ export function useChatSessionState({
 
   const storeMessages = activeSessionId ? sessionStore.getMessages(activeSessionId) : [];
 
-  // Reset viewHiddenCount when store messages change
-  const prevStoreLenRef = useRef(0);
-  if (storeMessages.length !== prevStoreLenRef.current) {
-    prevStoreLenRef.current = storeMessages.length;
+  // Reset viewHiddenCount only when the session changes (not on incremental appends)
+  const prevSessionRef = useRef<string | null>(null);
+  if (activeSessionId !== prevSessionRef.current) {
+    prevSessionRef.current = activeSessionId;
     if (viewHiddenCount > 0) setViewHiddenCount(0);
   }
 
+  // Append-only guard for pendingUserMessage: track whether we've already
+  // seen the user's message in the store so we don't briefly hide it.
+  const pendingFpRef = useRef<string | null>(null);
+
   const chatMessages = useMemo(() => {
     const all = normalizedToChatMessages(storeMessages);
-    // Show pending user message when no session data exists yet (new session, pre-backend-response)
-    if (pendingUserMessage && all.length === 0) {
-      return [pendingUserMessage];
+
+    // If pending user message exists and isn't yet in the store, append it at the end
+    if (pendingUserMessage) {
+      const pendingText = (pendingUserMessage.content || '').trim();
+      pendingFpRef.current = pendingText;
+      const alreadyInStore = all.some(m => m.type === 'user' && (m.content || '').trim() === pendingText);
+      if (!alreadyInStore) {
+        const result = [...all, pendingUserMessage];
+        if (viewHiddenCount > 0 && viewHiddenCount < result.length) return result.slice(0, -viewHiddenCount);
+        return result;
+      }
     }
+
     if (viewHiddenCount > 0 && viewHiddenCount < all.length) return all.slice(0, -viewHiddenCount);
     return all;
   }, [storeMessages, viewHiddenCount, pendingUserMessage]);
@@ -733,6 +748,10 @@ export function useChatSessionState({
     if (shouldBeProcessing && !isLoading) {
       setIsLoading(true);
       setCanAbortSession(true);
+      const startedAt = processingSessions.get(activeViewSessionId);
+      if (startedAt) {
+        setProcessingStartTime(startedAt);
+      }
     }
   }, [currentSessionId, isLoading, processingSessions, selectedSession?.id]);
 
@@ -819,6 +838,8 @@ export function useChatSessionState({
     rewindMessages,
     isLoading,
     setIsLoading,
+    processingStartTime,
+    setProcessingStartTime,
     currentSessionId,
     setCurrentSessionId,
     isLoadingSessionMessages,

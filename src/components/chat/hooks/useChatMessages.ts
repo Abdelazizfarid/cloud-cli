@@ -37,10 +37,9 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
     }
   }
 
-  let lastToolWasTask = false;
-
   for (const msg of messages) {
     const sharedMetadata = {
+      id: msg.id,
       displayText: msg.displayText,
       commandName: msg.commandName,
       commandMessage: msg.commandMessage,
@@ -69,14 +68,72 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
               ...sharedMetadata,
             });
           } else {
-            const isAgentPrompt = lastToolWasTask || content.length > 300;
-            converted.push({
-              type: 'user',
-              content: unescapeWithMathProtection(decodeHtmlEntities(content)),
-              timestamp: msg.timestamp,
-              isAgentPrompt,
-              ...sharedMetadata,
-            });
+            // Detect skill/system injected messages (long content with skill markers)
+            // or context file injections (claude.md, memory.md, etc.)
+            const isSkillContent = content.length > 500 && (
+              content.includes('Base directory for this skill:') ||
+              content.includes('AUTO-GENERATED from SKILL') ||
+              content.includes('## Preamble') ||
+              content.includes('.claude/skills/') ||
+              content.includes('_PROACTIVE=') ||
+              content.includes('gstack-config') ||
+              content.includes('claude.md') ||
+              content.includes('memory.md') ||
+              content.includes('CLAUDE.md') ||
+              content.includes('AGENTS.md') ||
+              /^#\s+(Project|Context|Memory|Instructions)/m.test(content)
+            );
+            if (isSkillContent) {
+              converted.push({
+                type: 'assistant',
+                content,
+                timestamp: msg.timestamp,
+                isSkillContent: true,
+                ...sharedMetadata,
+              });
+            } else {
+              // Check if content is a JSON array with image content blocks (API format)
+              let userText = content;
+              let parsedImages: { data: string; name: string }[] | undefined = msg.images?.map(d => ({ data: d, name: '' }));
+              
+              // Strip server-appended image paths section
+              const pathIdx = userText.indexOf('[Images provided at the following paths:]');
+              if (pathIdx > 0) {
+                userText = userText.slice(0, pathIdx).trim();
+              }
+
+              const trimmed = content.trim();
+              if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+                try {
+                  const parsed = JSON.parse(trimmed);
+                  if (Array.isArray(parsed) && parsed.some((b: any) => b?.type === 'image' || b?.type === 'text')) {
+                    userText = parsed
+                      .filter((b: any) => b?.type === 'text')
+                      .map((b: any) => b.text || '')
+                      .join('\n');
+                    const imgBlocks = parsed.filter((b: any) => b?.type === 'image' && b?.source?.data);
+                    if (imgBlocks.length > 0) {
+                      parsedImages = imgBlocks.map((b: any) => ({
+                        data: b.source.media_type
+                          ? `data:${b.source.media_type};base64,${b.source.data}`
+                          : `data:image/png;base64,${b.source.data}`,
+                        name: '',
+                      }));
+                    }
+                  }
+                } catch {
+                  // Not valid JSON, use content as-is
+                }
+              }
+
+              converted.push({
+                type: 'user',
+                content: unescapeWithMathProtection(decodeHtmlEntities(userText)),
+                images: parsedImages,
+                timestamp: msg.timestamp,
+                ...sharedMetadata,
+              });
+            }
           }
         } else {
           let text = decodeHtmlEntities(content);
@@ -89,14 +146,12 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
             ...sharedMetadata,
           });
         }
-        lastToolWasTask = false;
         break;
       }
 
       case 'tool_use': {
         const tr = msg.toolResult || (msg.toolId ? toolResultMap.get(msg.toolId) : null);
         const isSubagentContainer = msg.toolName === 'Task';
-        lastToolWasTask = isSubagentContainer;
 
         // Build child tools from subagentTools
         const childTools: SubagentChildTool[] = [];

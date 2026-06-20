@@ -113,8 +113,8 @@
   },
   "search": {
     "modeProjects": "Projects",
-    "modeConversations": "Conversations",
-    "conversationsPlaceholder": "Search in conversations...",
+    "modeConversations": "Active",
+    "conversationsPlaceholder": "Search active sessions...",
     "searching": "Searching...",
     "noResults": "No results found",
     "tryDifferentQuery": "Try a different search query",

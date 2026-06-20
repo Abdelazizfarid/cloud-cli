@@ -100,6 +100,7 @@ export function useChatRealtimeHandlers({
 }: UseChatRealtimeHandlersArgs) {
   const paletteOps = usePaletteOps();
   const lastProcessedMessageRef = useRef<LatestChatMessage | null>(null);
+  const justCreatedSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!latestMessage) return;
@@ -225,7 +226,10 @@ export function useChatRealtimeHandlers({
       && msg.kind !== 'permission_request'
       && msg.kind !== 'permission_cancelled';
 
-    if (sid && shouldPersist) {
+    // Skip user text messages for the active session — already added optimistically by addMessage
+    const isEchoedUserMessage = msg.kind === 'text' && msg.role === 'user' && (sid === activeViewSessionId || sid === justCreatedSessionRef.current);
+
+    if (sid && shouldPersist && !isEchoedUserMessage) {
       sessionStore.appendRealtime(sid, msg as NormalizedMessage);
     }
 
@@ -234,6 +238,9 @@ export function useChatRealtimeHandlers({
       case 'session_created': {
         const newSessionId = msg.newSessionId;
         if (!newSessionId) break;
+
+        // Track immediately (synchronous) so user echo arriving next is suppressed
+        justCreatedSessionRef.current = newSessionId;
 
         // We no longer synthesize client-side placeholder IDs. Until the provider
         // announces `session_created`, the active id is expected to be null.
@@ -244,18 +251,19 @@ export function useChatRealtimeHandlers({
           setPendingPermissionRequests((prev) =>
             prev.map((r) => (r.sessionId ? r : { ...r, sessionId: newSessionId })),
           );
+          onNavigateToSession?.(newSessionId);
+          pendingViewSessionRef.current = null;
+          onSessionActive?.(newSessionId);
+          onSessionProcessing?.(newSessionId);
+          setIsLoading(true);
+          setCanAbortSession(true);
+          setClaudeStatus({
+            text: 'Processing',
+            tokens: 0,
+            can_interrupt: true,
+          });
         }
-        pendingViewSessionRef.current = null;
-        onSessionActive?.(newSessionId);
-        onSessionProcessing?.(newSessionId);
-        setIsLoading(true);
-        setCanAbortSession(true);
-        setClaudeStatus({
-          text: 'Processing',
-          tokens: 0,
-          can_interrupt: true,
-        });
-        onNavigateToSession?.(newSessionId);
+        // Subagent sessions (currentSessionId already set) are ignored in UI
         break;
       }
 

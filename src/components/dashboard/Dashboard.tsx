@@ -8,7 +8,7 @@ type ViewMode = 'projects' | 'sessions';
 interface DashboardProps {
   projects: Project[];
   activeSessions: Set<string>;
-  processingSessions: Set<string>;
+  processingSessions: Map<string, number>;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession) => void;
   onNewSession?: (project: Project) => void;
@@ -368,7 +368,7 @@ export default function Dashboard({
               }`}
             >
               <List className="w-3.5 h-3.5" />
-              Sessions
+              Conversations
             </button>
           </div>
         </div>
@@ -439,7 +439,7 @@ function ProjectsView({
 }: {
   projects: Project[];
   activeSessions: Set<string>;
-  processingSessions: Set<string>;
+  processingSessions: Map<string, number>;
   expandedProjectId: string | null;
   onToggleExpand: (id: string) => void;
   onProjectSelect: (project: Project) => void;
@@ -587,7 +587,7 @@ function SessionsView({
 }: {
   sessions: (ProjectSession & { _projectName: string })[];
   activeSessions: Set<string>;
-  processingSessions: Set<string>;
+  processingSessions: Map<string, number>;
   onSessionSelect: (session: ProjectSession) => void;
 }) {
   if (sessions.length === 0) {

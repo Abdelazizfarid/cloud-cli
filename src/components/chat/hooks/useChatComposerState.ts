@@ -55,6 +55,7 @@ interface UseChatComposerStateArgs {
   scrollToBottom: () => void;
   addMessage: (msg: ChatMessage) => void;
   setIsLoading: (loading: boolean) => void;
+  setProcessingStartTime: (time: number | null) => void;
   setCanAbortSession: (canAbort: boolean) => void;
   setClaudeStatus: (status: { text: string; tokens: number; can_interrupt: boolean } | null) => void;
   setIsUserScrolledUp: (isScrolledUp: boolean) => void;
@@ -186,6 +187,7 @@ export function useChatComposerState({
   scrollToBottom,
   addMessage,
   setIsLoading,
+  setProcessingStartTime,
   setCanAbortSession,
   setClaudeStatus,
   setIsUserScrolledUp,
@@ -210,6 +212,7 @@ export function useChatComposerState({
   const handleSubmitRef = useRef<
     ((event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>) => Promise<void>) | null
   >(null);
+  const isSubmittingRef = useRef(false);
   const inputValueRef = useRef(input);
   const selectedProjectId = selectedProject?.projectId;
 
@@ -539,6 +542,13 @@ export function useChatComposerState({
       if (!currentInput.trim() || isLoading || !selectedProject) {
         return;
       }
+      // Synchronous double-submit guard
+      if (isSubmittingRef.current) {
+        return;
+      }
+      isSubmittingRef.current = true;
+      // Clear input immediately to prevent visual double-send
+      inputValueRef.current = '';
 
       // Intercept slash commands only when "/" is the first input character.
       // Also accept exact "help" as a convenience alias for users who expect CLI-style help.
@@ -563,6 +573,7 @@ export function useChatComposerState({
           executeCommand(matchedCommand, isHelpAlias ? '/help' : commandInput);
           setInput('');
           inputValueRef.current = '';
+          isSubmittingRef.current = false;
           setAttachedImages([]);
           setUploadingImages(new Map());
           setImageErrors(new Map());
@@ -620,7 +631,8 @@ export function useChatComposerState({
       };
 
       addMessage(userMessage);
-      setIsLoading(true); // Processing banner starts
+      setIsLoading(true);
+      setProcessingStartTime(Date.now());
       setCanAbortSession(true);
       setClaudeStatus({
         text: 'Processing',
@@ -753,6 +765,7 @@ export function useChatComposerState({
 
       setInput('');
       inputValueRef.current = '';
+      isSubmittingRef.current = false;
       resetCommandMenuState();
       setAttachedImages([]);
       setUploadingImages(new Map());
@@ -789,6 +802,7 @@ export function useChatComposerState({
       addMessage,
       setClaudeStatus,
       setIsLoading,
+      setProcessingStartTime,
       setIsUserScrolledUp,
       slashCommands,
     ],

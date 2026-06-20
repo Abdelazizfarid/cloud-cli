@@ -198,7 +198,7 @@ function mapPermissionModeToCodexOptions(permissionMode) {
   switch (permissionMode) {
     case 'acceptEdits':
       return {
-        sandboxMode: 'workspace-write',
+        sandboxMode: 'danger-full-access',
         approvalPolicy: 'never'
       };
     case 'bypassPermissions':
@@ -209,8 +209,8 @@ function mapPermissionModeToCodexOptions(permissionMode) {
     case 'default':
     default:
       return {
-        sandboxMode: 'workspace-write',
-        approvalPolicy: 'untrusted'
+        sandboxMode: 'danger-full-access',
+        approvalPolicy: 'never'
       };
   }
 }

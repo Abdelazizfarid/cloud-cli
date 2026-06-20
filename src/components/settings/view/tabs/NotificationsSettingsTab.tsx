@@ -1,7 +1,9 @@
-import { Bell, BellOff, BellRing, Loader2, Play, Volume2 } from 'lucide-react';
+import { Bell, BellOff, BellRing, Loader2, Play, RefreshCw, Volume2 } from 'lucide-react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '../../../../shared/view/ui';
+import { authenticatedFetch } from '../../../../utils/api';
 import { playChatCompletionSound } from '../../../../utils/notificationSound';
 import type { NotificationPreferencesState } from '../../types/types';
 
@@ -25,9 +27,62 @@ export default function NotificationsSettingsTab({
   onDisablePush,
 }: NotificationsSettingsTabProps) {
   const { t } = useTranslation('settings');
+  const [manualStatus, setManualStatus] = useState<string>('');
+  const [manualLoading, setManualLoading] = useState(false);
 
   const pushSupported = pushPermission !== 'unsupported';
   const pushDenied = pushPermission === 'denied';
+
+  const handleManualSubscribe = async () => {
+    setManualLoading(true);
+    setManualStatus('Starting...');
+    try {
+      setManualStatus('Requesting permission...');
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') {
+        setManualStatus(`Permission denied: ${perm}`);
+        return;
+      }
+      setManualStatus('Permission granted. Getting VAPID key...');
+      const keyRes = await authenticatedFetch('/api/settings/push/vapid-public-key');
+      const keyData = await keyRes.json();
+      if (!keyData.publicKey) {
+        setManualStatus('Error: No VAPID public key from server');
+        return;
+      }
+      setManualStatus('VAPID key received. Waiting for service worker...');
+      const registration = await navigator.serviceWorker.ready;
+      setManualStatus('Service worker ready. Subscribing to push...');
+
+      const padding = '='.repeat((4 - (keyData.publicKey.length % 4)) % 4);
+      const base64 = (keyData.publicKey + padding).replace(/-/g, '+').replace(/_/g, '/');
+      const rawData = window.atob(base64);
+      const appServerKey = new Uint8Array(rawData.length);
+      for (let i = 0; i < rawData.length; ++i) appServerKey[i] = rawData.charCodeAt(i);
+
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: appServerKey.buffer as ArrayBuffer,
+      });
+      setManualStatus('Push subscription created. Sending to server...');
+
+      const subJson = subscription.toJSON();
+      const saveRes = await authenticatedFetch('/api/settings/push/subscribe', {
+        method: 'POST',
+        body: JSON.stringify({ endpoint: subJson.endpoint, keys: subJson.keys }),
+      });
+      const saveData = await saveRes.json();
+      if (saveData.success) {
+        setManualStatus('Done! Push notifications active.');
+      } else {
+        setManualStatus(`Server error: ${JSON.stringify(saveData)}`);
+      }
+    } catch (err: any) {
+      setManualStatus(`Error: ${err?.message || String(err)}`);
+    } finally {
+      setManualLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-6 md:space-y-8">
@@ -81,7 +136,45 @@ export default function NotificationsSettingsTab({
                 {t('notifications.webPush.enabled')}
               </span>
             )}
+            {isPushSubscribed && (
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const { authenticatedFetch: authFetch } = await import('../../../../utils/api');
+                    await authFetch('/api/settings/push/test', { method: 'POST' });
+                  } catch (error) {
+                    console.error('Failed to send test push notification', error);
+                  }
+                }}
+                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                <Bell className="w-4 h-4" />
+                Test
+              </button>
+            )}
           </div>
+        )}
+      </div>
+
+      <div className="space-y-3 bg-card border border-border rounded-lg p-4">
+        <h4 className="font-medium text-foreground">Manual Push Setup</h4>
+        <p className="text-xs text-muted-foreground">
+          Use this if the Enable button above doesn't work on your device.
+        </p>
+        <button
+          type="button"
+          disabled={manualLoading}
+          onClick={handleManualSubscribe}
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {manualLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+          {manualLoading ? 'Working...' : 'Force Subscribe'}
+        </button>
+        {manualStatus && (
+          <p className={`text-xs font-mono p-2 rounded ${manualStatus.startsWith('Error') || manualStatus.startsWith('Permission denied') ? 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400' : manualStatus.startsWith('Done') ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400' : 'bg-gray-50 text-gray-700 dark:bg-gray-800 dark:text-gray-300'}`}>
+            {manualStatus}
+          </p>
         )}
       </div>
 

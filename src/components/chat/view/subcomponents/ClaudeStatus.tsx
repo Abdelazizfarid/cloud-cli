@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../../../lib/utils';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
@@ -12,6 +12,7 @@ type ClaudeStatusProps = {
   onAbort?: () => void;
   isLoading: boolean;
   provider?: string;
+  startedAt?: number | null;
 };
 
 const ACTION_KEYS = [
@@ -43,17 +44,25 @@ export default function ClaudeStatus({
   onAbort,
   isLoading,
   provider = 'claude',
+  startedAt,
 }: ClaudeStatusProps) {
   const { t } = useTranslation('chat');
   const [elapsedTime, setElapsedTime] = useState(0);
   const [dots, setDots] = useState('');
+  const startTimeRef = useRef<number>(0);
 
   useEffect(() => {
     if (!isLoading) {
       setElapsedTime(0);
+      startTimeRef.current = 0;
       return;
     }
-    const startTime = Date.now();
+    // Use external startedAt if available (persists across session switches)
+    if (!startTimeRef.current) {
+      startTimeRef.current = startedAt || Date.now();
+    }
+    const startTime = startTimeRef.current;
+    setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
     const timer = setInterval(() => {
       setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
@@ -65,7 +74,7 @@ export default function ClaudeStatus({
       clearInterval(timer);
       clearInterval(dotTimer);
     };
-  }, [isLoading]);
+  }, [isLoading, startedAt]);
 
   if (!isLoading && !status) return null;
 

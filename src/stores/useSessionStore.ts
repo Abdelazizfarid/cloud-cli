@@ -91,6 +91,8 @@ export interface SessionSlot {
   /** @internal Cache-invalidation refs for computeMerged */
   _lastServerRef: NormalizedMessage[];
   _lastRealtimeRef: NormalizedMessage[];
+  /** Persistent image cache: fingerprint → data URLs. Survives refreshFromServer. */
+  imageCache: Map<string, string[]>;
   status: SessionStatus;
   fetchedAt: number;
   total: number;
@@ -108,6 +110,7 @@ function createEmptySlot(): SessionSlot {
     merged: EMPTY,
     _lastServerRef: EMPTY,
     _lastRealtimeRef: EMPTY,
+    imageCache: new Map(),
     status: 'idle',
     fetchedAt: 0,
     total: 0,
@@ -117,6 +120,26 @@ function createEmptySlot(): SessionSlot {
   };
 }
 
+const IMAGE_CACHE_PREFIX = 'cloudcli_img_';
+
+function saveImageCache(sessionId: string, cache: Map<string, string[]>): void {
+  if (cache.size === 0) return;
+  try {
+    const obj: Record<string, string[]> = {};
+    cache.forEach((v, k) => { obj[k] = v; });
+    localStorage.setItem(IMAGE_CACHE_PREFIX + sessionId, JSON.stringify(obj));
+  } catch { /* quota exceeded — silently ignore */ }
+}
+
+function loadImageCache(sessionId: string): Map<string, string[]> {
+  try {
+    const raw = localStorage.getItem(IMAGE_CACHE_PREFIX + sessionId);
+    if (!raw) return new Map();
+    const obj = JSON.parse(raw) as Record<string, string[]>;
+    return new Map(Object.entries(obj));
+  } catch { return new Map(); }
+}
+
 /**
  * Compute merged messages: server + realtime, deduped by id and adjacent
  * assistant echo (same trimmed text), so finalized stream rows do not stack
@@ -124,7 +147,12 @@ function createEmptySlot(): SessionSlot {
  */
 function userTextFingerprint(m: NormalizedMessage): string | null {
   if (m.kind !== 'text' || m.role !== 'user') return null;
-  const t = (m.content || '').trim();
+  let t = (m.content || '').trim();
+  // Strip image paths section appended by server so client/server versions match
+  const pathIdx = t.indexOf('[Images provided at the following paths:]');
+  if (pathIdx > 0) {
+    t = t.slice(0, pathIdx).trim();
+  }
   return t.length > 0 ? t : null;
 }
 
@@ -165,36 +193,117 @@ function dedupeAdjacentAssistantEchoes(merged: NormalizedMessage[]): NormalizedM
   return out;
 }
 
-function computeMerged(server: NormalizedMessage[], realtime: NormalizedMessage[]): NormalizedMessage[] {
-  if (realtime.length === 0) return server;
-  if (server.length === 0) return dedupeAdjacentAssistantEchoes(realtime);
+/**
+ * Within the realtime array, if both a local_* user message and a server-echoed
+ * user message exist with the same text, keep only the server-echoed one (it has
+ * the canonical id). This prevents duplicate bubbles before refreshFromServer.
+ */
+function dedupeRealtimeUserMessages(msgs: NormalizedMessage[]): NormalizedMessage[] {
+  const seenUserTexts = new Map<string, number>();
+  // First pass: find server-echoed user texts (non-local_ ids)
+  for (let i = 0; i < msgs.length; i++) {
+    const fp = userTextFingerprint(msgs[i]);
+    if (fp && !msgs[i].id.startsWith('local_')) {
+      seenUserTexts.set(fp, i);
+    }
+  }
+  if (seenUserTexts.size === 0) return msgs;
+  // Second pass: drop local_ user messages whose text already has a server echo
+  return msgs.filter((m) => {
+    if (!m.id.startsWith('local_')) return true;
+    const fp = userTextFingerprint(m);
+    return !(fp && seenUserTexts.has(fp));
+  });
+}
+
+function computeMerged(server: NormalizedMessage[], realtime: NormalizedMessage[], imageCache?: Map<string, string[]>): NormalizedMessage[] {
+  // Apply imageCache to server messages even when realtime is empty
+  const applyImageCache = (msgs: NormalizedMessage[]): NormalizedMessage[] => {
+    if (!imageCache || imageCache.size === 0) return msgs;
+    return msgs.map(m => {
+      if (m.images?.length) return m;
+      const fp = userTextFingerprint(m);
+      if (fp && imageCache.has(fp)) {
+        return { ...m, images: imageCache.get(fp) };
+      }
+      return m;
+    });
+  };
+
+  if (realtime.length === 0) {
+    const result = applyImageCache(server);
+    result.sort(compareMessagesByTimestamp);
+    return result;
+  }
+  if (server.length === 0) {
+    const result = applyImageCache(dedupeAdjacentAssistantEchoes(dedupeRealtimeUserMessages(realtime)));
+    result.sort(compareMessagesByTimestamp);
+    return result;
+  }
   const serverIds = new Set(server.map(m => m.id));
   const serverUserTexts = new Set(
     server.map(userTextFingerprint).filter((t): t is string => t !== null),
   );
-  const extra = realtime.filter((m) => {
+
+  // Build a map of realtime images keyed by fingerprint so we can preserve them
+  const realtimeImagesByFp = new Map<string, string[]>();
+  for (const m of realtime) {
+    if (m.images?.length) {
+      const fp = userTextFingerprint(m);
+      if (fp) realtimeImagesByFp.set(fp, m.images);
+    }
+  }
+
+  // Merge images from realtime or imageCache into server messages that lack them
+  const mergedServer = server.map(m => {
+    if (m.images?.length) return m;
+    const fp = userTextFingerprint(m);
+    if (fp) {
+      if (realtimeImagesByFp.has(fp)) return { ...m, images: realtimeImagesByFp.get(fp) };
+      if (imageCache?.has(fp)) return { ...m, images: imageCache.get(fp) };
+    }
+    return m;
+  });
+
+  const dedupedRealtime = dedupeRealtimeUserMessages(realtime);
+  const extra = dedupedRealtime.filter((m) => {
     if (serverIds.has(m.id)) return false;
-    // Optimistic user rows use `local_*` ids; once the same text exists on the
-    // server-backed copy, drop the realtime echo to avoid duplicate bubbles.
     if (m.id.startsWith('local_')) {
       const fp = userTextFingerprint(m);
       if (fp && serverUserTexts.has(fp)) return false;
     }
     return true;
   });
-  if (extra.length === 0) return server;
-  return dedupeAdjacentAssistantEchoes([...server, ...extra]);
+  if (extra.length === 0) {
+    mergedServer.sort(compareMessagesByTimestamp);
+    return mergedServer;
+  }
+  const combined = [...mergedServer, ...extra];
+  combined.sort(compareMessagesByTimestamp);
+  return dedupeAdjacentAssistantEchoes(combined);
 }
 
 function compareMessagesByTimestamp(left: NormalizedMessage, right: NormalizedMessage): number {
   const leftTime = Date.parse(left.timestamp);
   const rightTime = Date.parse(right.timestamp);
 
-  if (Number.isNaN(leftTime) || Number.isNaN(rightTime) || leftTime === rightTime) {
-    return 0;
+  if (!Number.isNaN(leftTime) && !Number.isNaN(rightTime) && leftTime !== rightTime) {
+    return leftTime - rightTime;
   }
 
-  return leftTime - rightTime;
+  // Tiebreaker: use sequence/rowid for stable ordering when timestamps match
+  if (left.sequence !== undefined && right.sequence !== undefined) {
+    return left.sequence - right.sequence;
+  }
+  if (left.rowid !== undefined && right.rowid !== undefined) {
+    return left.rowid - right.rowid;
+  }
+
+  // If one has a valid timestamp and the other doesn't, valid comes first
+  if (!Number.isNaN(leftTime) && Number.isNaN(rightTime)) return -1;
+  if (Number.isNaN(leftTime) && !Number.isNaN(rightTime)) return 1;
+
+  return 0;
 }
 
 function rewriteMessageSessionId(
@@ -250,7 +359,7 @@ function recomputeMergedIfNeeded(slot: SessionSlot): boolean {
   }
   slot._lastServerRef = slot.serverMessages;
   slot._lastRealtimeRef = slot.realtimeMessages;
-  slot.merged = computeMerged(slot.serverMessages, slot.realtimeMessages);
+  slot.merged = computeMerged(slot.serverMessages, slot.realtimeMessages, slot.imageCache);
   return true;
 }
 
@@ -308,7 +417,9 @@ export function useSessionStore() {
     const resolvedSessionId = resolveSessionId(sessionId) ?? sessionId;
     const store = storeRef.current;
     if (!store.has(resolvedSessionId)) {
-      store.set(resolvedSessionId, createEmptySlot());
+      const slot = createEmptySlot();
+      slot.imageCache = loadImageCache(resolvedSessionId);
+      store.set(resolvedSessionId, slot);
     }
     return store.get(resolvedSessionId)!;
   }, [resolveSessionId]);
@@ -431,6 +542,56 @@ export function useSessionStore() {
       msg.sessionId === resolvedSessionId
         ? msg
         : { ...msg, sessionId: resolvedSessionId };
+
+    // Deduplicate user text messages: if the same user text already exists in
+    // realtime (optimistic local or server echo), replace the local_ version
+    // with the server version, or skip if already present with same id.
+    const fp = userTextFingerprint(normalizedMessage);
+
+    // Persist image data in imageCache so it survives refreshFromServer
+    if (fp && normalizedMessage.images?.length) {
+      slot.imageCache.set(fp, normalizedMessage.images);
+      saveImageCache(resolvedSessionId, slot.imageCache);
+    }
+
+    if (fp) {
+      const existingIdx = slot.realtimeMessages.findIndex((m) => {
+        if (m.id === normalizedMessage.id) return true;
+        const mfp = userTextFingerprint(m);
+        return mfp === fp;
+      });
+      if (existingIdx >= 0) {
+        // If incoming has a real id (not local_), replace the existing local_ one
+        if (!normalizedMessage.id.startsWith('local_') && slot.realtimeMessages[existingIdx].id.startsWith('local_')) {
+          const updated = [...slot.realtimeMessages];
+          // Preserve images from local message if server echo doesn't include them
+          const localImages = slot.realtimeMessages[existingIdx].images;
+          const merged = normalizedMessage.images?.length
+            ? normalizedMessage
+            : { ...normalizedMessage, images: localImages };
+          updated[existingIdx] = merged;
+          slot.realtimeMessages = updated;
+          // Also cache from local message
+          if (localImages?.length && !slot.imageCache.has(fp)) {
+            slot.imageCache.set(fp, localImages);
+            saveImageCache(resolvedSessionId, slot.imageCache);
+          }
+          recomputeMergedIfNeeded(slot);
+          notify(resolvedSessionId);
+        } else if (normalizedMessage.id.startsWith('local_') && !slot.realtimeMessages[existingIdx].id.startsWith('local_')) {
+          // Local message arriving after server echo — merge images into server copy
+          if (normalizedMessage.images?.length && !slot.realtimeMessages[existingIdx].images?.length) {
+            const updated = [...slot.realtimeMessages];
+            updated[existingIdx] = { ...slot.realtimeMessages[existingIdx], images: normalizedMessage.images };
+            slot.realtimeMessages = updated;
+            recomputeMergedIfNeeded(slot);
+            notify(resolvedSessionId);
+          }
+        }
+        return; // Skip duplicate
+      }
+    }
+
     let updated = [...slot.realtimeMessages, normalizedMessage];
     if (updated.length > MAX_REALTIME_MESSAGES) {
       updated = updated.slice(-MAX_REALTIME_MESSAGES);
@@ -488,8 +649,21 @@ export function useSessionStore() {
       slot.total = data.total ?? slot.serverMessages.length;
       slot.hasMore = Boolean(data.hasMore);
       slot.fetchedAt = Date.now();
-      // drop realtime messages that the server has caught up with to prevent unbounded growth.
-      slot.realtimeMessages = [];
+      // Drop realtime messages the server now includes (by ID or by user text fingerprint)
+      const serverIds = new Set((slot.serverMessages as NormalizedMessage[]).map(m => m.id));
+      const serverUserTexts = new Set(
+        (slot.serverMessages as NormalizedMessage[])
+          .map(userTextFingerprint)
+          .filter((t): t is string => t !== null),
+      );
+      slot.realtimeMessages = slot.realtimeMessages.filter(m => {
+        if (serverIds.has(m.id)) return false;
+        if (m.id.startsWith('local_')) {
+          const fp = userTextFingerprint(m);
+          if (fp && serverUserTexts.has(fp)) return false;
+        }
+        return true;
+      });
       recomputeMergedIfNeeded(slot);
       notify(resolvedSessionId);
     } catch (error) {

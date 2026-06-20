@@ -11,6 +11,7 @@ import express from 'express';
 import cors from 'cors';
 import mime from 'mime-types';
 import Database from 'better-sqlite3';
+import jwt from 'jsonwebtoken';
 
 import { AppError, WORKSPACES_ROOT, getOpenCodeDatabasePath, validateWorkspacePath } from '@/shared/utils.js';
 import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
@@ -74,7 +75,7 @@ import pluginsRoutes from './routes/plugins.js';
 import providerRoutes from './modules/providers/provider.routes.js';
 import syncRoutes from './modules/sync/sync.routes.js';
 import { startEnabledPluginServers, stopAllPlugins, getPluginPort } from './utils/plugin-process-manager.js';
-import { initializeDatabase, projectsDb, sessionsDb } from './modules/database/index.js';
+import { initializeDatabase, projectsDb, sessionsDb, appConfigDb } from './modules/database/index.js';
 import { configureWebPush } from './services/vapid-keys.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
@@ -210,6 +211,78 @@ app.use('/api/agent', agentRoutes);
 
 // Sync API Routes (protected)
 app.use('/api/sync', authenticateToken, syncRoutes);
+
+// Serve session images from temp directories (no auth — paths contain random tokens)
+app.get('/api/images/*', (req, res) => {
+  const imagePath = '/' + req.params[0];
+  // Only allow serving from known temp image directories
+  if (!imagePath.includes('/.tmp/images/') || imagePath.includes('..')) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+  const ext = path.extname(imagePath).toLowerCase();
+  const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.pdf': 'application/pdf' };
+  const mime = mimeMap[ext] || 'application/octet-stream';
+  res.sendFile(imagePath, { headers: { 'Content-Type': mime } }, (err) => {
+    if (err) res.status(404).json({ error: 'File not found' });
+  });
+});
+
+// Serve screenshots via signed temporary URLs (expire after 1 hour)
+app.get('/api/screenshots/view', (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(400).json({ error: 'Missing token' });
+
+  const JWT_SECRET = process.env.JWT_SECRET || appConfigDb.getOrCreateJwtSecret();
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const filePath = decoded.path;
+    if (!filePath || filePath.includes('..')) {
+      return res.status(403).json({ error: 'Invalid path' });
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
+    const mime = mimeMap[ext] || 'application/octet-stream';
+    res.sendFile(filePath, { headers: { 'Content-Type': mime, 'Cache-Control': 'public, max-age=3600' } }, (err) => {
+      if (err) res.status(404).json({ error: 'File not found or expired' });
+    });
+  } catch (err) {
+    return res.status(401).json({ error: 'Token expired or invalid' });
+  }
+});
+
+// Generate a signed temporary URL for a screenshot file path
+app.post('/api/screenshots/sign', authenticateToken, (req, res) => {
+  const { filePath } = req.body;
+  if (!filePath || typeof filePath !== 'string') {
+    return res.status(400).json({ error: 'filePath required' });
+  }
+  if (filePath.includes('..')) {
+    return res.status(403).json({ error: 'Invalid path' });
+  }
+  const JWT_SECRET = process.env.JWT_SECRET || appConfigDb.getOrCreateJwtSecret();
+  const token = jwt.sign({ path: filePath, purpose: 'screenshot' }, JWT_SECRET, { expiresIn: '1h' });
+  const url = `/api/screenshots/view?token=${encodeURIComponent(token)}`;
+  res.json({ url, expiresIn: 3600 });
+});
+
+// Serve screenshot files with auth token (query param or header)
+app.get('/api/screenshots/file', authenticateToken, (req, res) => {
+  const filePath = req.query.path;
+  if (!filePath || typeof filePath !== 'string' || filePath.includes('..')) {
+    return res.status(400).json({ error: 'Invalid path' });
+  }
+  const ext = path.extname(filePath).toLowerCase();
+  const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'];
+  if (!imageExts.includes(ext)) {
+    return res.status(400).json({ error: 'Not an image file' });
+  }
+  const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
+  const mime = mimeMap[ext] || 'application/octet-stream';
+  res.sendFile(filePath, { headers: { 'Content-Type': mime, 'Cache-Control': 'public, max-age=3600' } }, (err) => {
+    if (err) res.status(404).json({ error: 'File not found' });
+  });
+});
+
 app.use(express.static(path.join(APP_ROOT, 'public')));
 
 // Static files served after API routes

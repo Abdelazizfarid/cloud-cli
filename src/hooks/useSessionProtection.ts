@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 
 export function useSessionProtection() {
   const [activeSessions, setActiveSessions] = useState<Set<string>>(new Set());
-  const [processingSessions, setProcessingSessions] = useState<Set<string>>(new Set());
+  const [processingSessions, setProcessingSessions] = useState<Map<string, number>>(new Map());
 
   const markSessionAsActive = useCallback((sessionId?: string | null) => {
     if (!sessionId) {
@@ -29,7 +29,12 @@ export function useSessionProtection() {
       return;
     }
 
-    setProcessingSessions((prev) => new Set([...prev, sessionId]));
+    setProcessingSessions((prev) => {
+      if (prev.has(sessionId)) return prev;
+      const next = new Map(prev);
+      next.set(sessionId, Date.now());
+      return next;
+    });
   }, []);
 
   const markSessionAsNotProcessing = useCallback((sessionId?: string | null) => {
@@ -38,7 +43,7 @@ export function useSessionProtection() {
     }
 
     setProcessingSessions((prev) => {
-      const next = new Set(prev);
+      const next = new Map(prev);
       next.delete(sessionId);
       return next;
     });
