@@ -113,27 +113,16 @@ export default function ChatMessagesPane({
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
   const messageKeyMapRef = useRef<Map<string, string>>(new Map());
-  const userFingerprintKeyMapRef = useRef<Map<string, string>>(new Map());
   const generatedMessageKeyCounterRef = useRef(0);
 
   // Keep keys stable across re-renders using intrinsic message id.
-  // For user messages, stabilize across local→server ID transitions using content fingerprint.
+  // Do not key by raw user text; repeated identical prompts must render as
+  // separate rows with unique keys.
   const getMessageKey = useCallback((message: ChatMessage) => {
     const intrinsicKey = getIntrinsicMessageKey(message);
     if (!intrinsicKey) {
       generatedMessageKeyCounterRef.current += 1;
       return `message-generated-${generatedMessageKeyCounterRef.current}`;
-    }
-
-    // For user text messages, use content fingerprint to keep key stable
-    // when the message ID transitions from local_* to a server-assigned ID
-    if (message.type === 'user' && message.content) {
-      const fp = message.content.trim().slice(0, 120);
-      if (fp.length > 0) {
-        const existingFpKey = userFingerprintKeyMapRef.current.get(fp);
-        if (existingFpKey) return existingFpKey;
-        userFingerprintKeyMapRef.current.set(fp, intrinsicKey);
-      }
     }
 
     const existing = messageKeyMapRef.current.get(intrinsicKey);

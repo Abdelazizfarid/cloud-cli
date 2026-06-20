@@ -121,6 +121,8 @@ function createEmptySlot(): SessionSlot {
 }
 
 const IMAGE_CACHE_PREFIX = 'cloudcli_img_';
+const USER_ECHO_WINDOW_MS = 120_000;
+const USER_ECHO_NEGATIVE_SKEW_MS = 5_000;
 
 function saveImageCache(sessionId: string, cache: Map<string, string[]>): void {
   if (cache.size === 0) return;
@@ -199,21 +201,48 @@ function dedupeAdjacentAssistantEchoes(merged: NormalizedMessage[]): NormalizedM
  * the canonical id). This prevents duplicate bubbles before refreshFromServer.
  */
 function dedupeRealtimeUserMessages(msgs: NormalizedMessage[]): NormalizedMessage[] {
-  const seenUserTexts = new Map<string, number>();
-  // First pass: find server-echoed user texts (non-local_ ids)
-  for (let i = 0; i < msgs.length; i++) {
-    const fp = userTextFingerprint(msgs[i]);
-    if (fp && !msgs[i].id.startsWith('local_')) {
-      seenUserTexts.set(fp, i);
-    }
-  }
-  if (seenUserTexts.size === 0) return msgs;
-  // Second pass: drop local_ user messages whose text already has a server echo
+  const serverEchoes = msgs.filter((msg) =>
+    msg.kind === 'text'
+    && msg.role === 'user'
+    && !msg.id.startsWith('local_')
+    && userTextFingerprint(msg) !== null,
+  );
+
+  if (serverEchoes.length === 0) return msgs;
+
+  // Drop a local user message only when there is a likely canonical echo
+  // nearby in time. This avoids hiding legitimate repeated prompts such as
+  // "thanks", "ok", etc. that occur later in the same conversation.
   return msgs.filter((m) => {
     if (!m.id.startsWith('local_')) return true;
-    const fp = userTextFingerprint(m);
-    return !(fp && seenUserTexts.has(fp));
+    if (m.kind !== 'text' || m.role !== 'user') return true;
+    return !serverEchoes.some((echo) => isLikelyUserEcho(m, echo));
   });
+}
+
+function parseMessageTimeMs(message: NormalizedMessage): number | null {
+  const ms = Date.parse(message.timestamp);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+function isLikelyUserEcho(localMessage: NormalizedMessage, serverMessage: NormalizedMessage): boolean {
+  if (!localMessage.id.startsWith('local_')) return false;
+  if (localMessage.kind !== 'text' || localMessage.role !== 'user') return false;
+  if (serverMessage.kind !== 'text' || serverMessage.role !== 'user' || serverMessage.id.startsWith('local_')) return false;
+
+  const localFp = userTextFingerprint(localMessage);
+  const serverFp = userTextFingerprint(serverMessage);
+  if (!localFp || !serverFp || localFp !== serverFp) return false;
+
+  const localTime = parseMessageTimeMs(localMessage);
+  const serverTime = parseMessageTimeMs(serverMessage);
+  if (localTime === null || serverTime === null) return false;
+
+  const delta = Math.abs(serverTime - localTime);
+  if (delta > USER_ECHO_WINDOW_MS) return false;
+  if (serverTime + USER_ECHO_NEGATIVE_SKEW_MS < localTime) return false;
+
+  return true;
 }
 
 function computeMerged(server: NormalizedMessage[], realtime: NormalizedMessage[], imageCache?: Map<string, string[]>): NormalizedMessage[] {
@@ -241,8 +270,8 @@ function computeMerged(server: NormalizedMessage[], realtime: NormalizedMessage[
     return result;
   }
   const serverIds = new Set(server.map(m => m.id));
-  const serverUserTexts = new Set(
-    server.map(userTextFingerprint).filter((t): t is string => t !== null),
+  const serverUserMessages = server.filter((m) =>
+    m.kind === 'text' && m.role === 'user' && userTextFingerprint(m) !== null,
   );
 
   // Build a map of realtime images keyed by fingerprint so we can preserve them
@@ -269,8 +298,8 @@ function computeMerged(server: NormalizedMessage[], realtime: NormalizedMessage[
   const extra = dedupedRealtime.filter((m) => {
     if (serverIds.has(m.id)) return false;
     if (m.id.startsWith('local_')) {
-      const fp = userTextFingerprint(m);
-      if (fp && serverUserTexts.has(fp)) return false;
+      const hasLikelyEcho = serverUserMessages.some((serverMessage) => isLikelyUserEcho(m, serverMessage));
+      if (hasLikelyEcho) return false;
     }
     return true;
   });
@@ -564,12 +593,19 @@ export function useSessionStore() {
         // If incoming has a real id (not local_), replace the existing local_ one
         if (!normalizedMessage.id.startsWith('local_') && slot.realtimeMessages[existingIdx].id.startsWith('local_')) {
           const updated = [...slot.realtimeMessages];
+          const existingLocal = slot.realtimeMessages[existingIdx];
           // Preserve images from local message if server echo doesn't include them
-          const localImages = slot.realtimeMessages[existingIdx].images;
+          const localImages = existingLocal.images;
           const merged = normalizedMessage.images?.length
             ? normalizedMessage
             : { ...normalizedMessage, images: localImages };
-          updated[existingIdx] = merged;
+          // Keep local id/timestamp stable to avoid UI remount flicker while the
+          // canonical server row is still converging in history fetches.
+          updated[existingIdx] = {
+            ...merged,
+            id: existingLocal.id,
+            timestamp: existingLocal.timestamp,
+          };
           slot.realtimeMessages = updated;
           // Also cache from local message
           if (localImages?.length && !slot.imageCache.has(fp)) {
@@ -651,16 +687,14 @@ export function useSessionStore() {
       slot.fetchedAt = Date.now();
       // Drop realtime messages the server now includes (by ID or by user text fingerprint)
       const serverIds = new Set((slot.serverMessages as NormalizedMessage[]).map(m => m.id));
-      const serverUserTexts = new Set(
-        (slot.serverMessages as NormalizedMessage[])
-          .map(userTextFingerprint)
-          .filter((t): t is string => t !== null),
+      const serverUserMessages = (slot.serverMessages as NormalizedMessage[]).filter((m) =>
+        m.kind === 'text' && m.role === 'user' && userTextFingerprint(m) !== null,
       );
       slot.realtimeMessages = slot.realtimeMessages.filter(m => {
         if (serverIds.has(m.id)) return false;
         if (m.id.startsWith('local_')) {
-          const fp = userTextFingerprint(m);
-          if (fp && serverUserTexts.has(fp)) return false;
+          const hasLikelyEcho = serverUserMessages.some((serverMessage) => isLikelyUserEcho(m, serverMessage));
+          if (hasLikelyEcho) return false;
         }
         return true;
       });
@@ -699,18 +733,21 @@ export function useSessionStore() {
     const resolvedSessionId = resolveSessionId(sessionId) ?? sessionId;
     const slot = getSlot(resolvedSessionId);
     const streamId = `__streaming_${resolvedSessionId}`;
+    const existingIdx = slot.realtimeMessages.findIndex(m => m.id === streamId);
+    const existingStream = existingIdx >= 0 ? slot.realtimeMessages[existingIdx] : null;
     const msg: NormalizedMessage = {
       id: streamId,
       sessionId: resolvedSessionId,
-      timestamp: new Date().toISOString(),
+      // Preserve the original stream timestamp to prevent reordering flicker
+      // while deltas are arriving.
+      timestamp: existingStream?.timestamp || new Date().toISOString(),
       provider: msgProvider,
       kind: 'stream_delta',
       content: accumulatedText,
     };
-    const idx = slot.realtimeMessages.findIndex(m => m.id === streamId);
-    if (idx >= 0) {
+    if (existingIdx >= 0) {
       slot.realtimeMessages = [...slot.realtimeMessages];
-      slot.realtimeMessages[idx] = msg;
+      slot.realtimeMessages[existingIdx] = msg;
     } else {
       slot.realtimeMessages = [...slot.realtimeMessages, msg];
     }
