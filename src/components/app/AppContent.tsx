@@ -20,6 +20,20 @@ import { useUiPreferences } from '../../hooks/useUiPreferences';
 import { api } from '../../utils/api';
 
 const DEFAULT_AGENT_CONTROL_PLANE_URL = 'https://agents.hooktrack.life/sessions/';
+const DEFAULT_AGENT_CONTROL_PLANE_PATH = '/sessions/';
+
+const AGENT_CONTROL_PLANE_NAV_ITEMS: Array<{ label: string; path: string }> = [
+  { label: 'Sessions', path: '/sessions/' },
+  { label: 'Chat', path: '/chat/' },
+  { label: 'Agents', path: '/agents/' },
+  { label: 'Routines', path: '/routines/' },
+  { label: 'Inbox', path: '/inbox/' },
+  { label: 'Integrations', path: '/integrations/' },
+  { label: 'Skills', path: '/skills/' },
+  { label: 'Rules', path: '/rules/' },
+  { label: 'Vault', path: '/vault/' },
+  { label: 'Settings', path: '/settings/' },
+];
 
 export default function AppContent() {
   return (
@@ -94,21 +108,27 @@ function AppContentInner() {
   const [splitMode, setSplitMode] = useState(false);
   const [showSyncPanel, setShowSyncPanel] = useState(false);
   const [showAgentControlPlane, setShowAgentControlPlane] = useState(false);
+  const [agentControlPlanePath, setAgentControlPlanePath] = useState(DEFAULT_AGENT_CONTROL_PLANE_PATH);
+  const [agentControlPlaneCacheBust, setAgentControlPlaneCacheBust] = useState(() => Date.now());
   const agentControlPlaneUrl = useMemo(() => {
     const baseUrl = (import.meta.env.VITE_AGENT_CONTROL_PLANE_URL || DEFAULT_AGENT_CONTROL_PLANE_URL).trim();
     const token = (import.meta.env.VITE_AGENT_CONTROL_PLANE_TOKEN || '').trim();
     const fallbackOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
 
     try {
-      const parsedUrl = new URL(baseUrl, fallbackOrigin);
+      const parsedBase = new URL(baseUrl, fallbackOrigin);
+      const normalizedPath = agentControlPlanePath.startsWith('/') ? agentControlPlanePath : `/${agentControlPlanePath}`;
+      const parsedUrl = new URL(normalizedPath, parsedBase.origin);
       if (token) {
         parsedUrl.searchParams.set('token', token);
       }
+      parsedUrl.searchParams.set('cloudcli_embed', '1');
+      parsedUrl.searchParams.set('cache_bust', String(agentControlPlaneCacheBust));
       return parsedUrl.toString();
     } catch {
       return baseUrl;
     }
-  }, []);
+  }, [agentControlPlaneCacheBust, agentControlPlanePath]);
 
   // Clear forceDashboard when navigating away from /home
   useEffect(() => {
@@ -220,6 +240,8 @@ function AppContentInner() {
   const openAgentControlPlane = useCallback(() => {
     setForceDashboard(false);
     setSplitMode(false);
+    setAgentControlPlanePath(DEFAULT_AGENT_CONTROL_PLANE_PATH);
+    setAgentControlPlaneCacheBust(Date.now());
     setShowAgentControlPlane(true);
     setSidebarOpen(false);
   }, [setSidebarOpen]);
@@ -383,22 +405,61 @@ function AppContentInner() {
             />
           )}
           {showAgentControlPlane ? (
-            <div className="flex h-full flex-col overflow-hidden bg-background">
-              <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
-                <h2 className="text-sm font-semibold text-foreground">Agent Control Plane</h2>
-                <button
-                  type="button"
-                  onClick={() => setShowAgentControlPlane(false)}
-                  className="rounded-md border border-border/60 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                  Back to CloudCLI
-                </button>
+            <div className="flex h-full min-h-0 overflow-hidden bg-background">
+              <aside className="hidden h-full w-48 shrink-0 border-r border-border/60 bg-card/30 lg:flex lg:flex-col">
+                <div className="border-b border-border/60 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  ACP Navigation
+                </div>
+                <div className="space-y-1 p-2">
+                  {AGENT_CONTROL_PLANE_NAV_ITEMS.map((item) => {
+                    const isActive = item.path === agentControlPlanePath;
+                    return (
+                      <button
+                        key={item.path}
+                        type="button"
+                        onClick={() => {
+                          setAgentControlPlanePath(item.path);
+                          setAgentControlPlaneCacheBust(Date.now());
+                        }}
+                        className={`w-full rounded-md px-2.5 py-1.5 text-left text-xs font-medium transition-colors ${
+                          isActive
+                            ? 'bg-accent text-foreground'
+                            : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </aside>
+              <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
+                  <h2 className="text-sm font-semibold text-foreground">Agent Control Plane</h2>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAgentControlPlaneCacheBust(Date.now())}
+                      className="rounded-md border border-border/60 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                      Refresh ACP
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowAgentControlPlane(false)}
+                      className="rounded-md border border-border/60 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                      Back to CloudCLI
+                    </button>
+                  </div>
+                </div>
+                <iframe
+                  key={`${agentControlPlanePath}-${agentControlPlaneCacheBust}`}
+                  title="Agent Control Plane"
+                  src={agentControlPlaneUrl}
+                  className="h-full w-full border-0"
+                />
               </div>
-              <iframe
-                title="Agent Control Plane"
-                src={agentControlPlaneUrl}
-                className="h-full w-full border-0"
-              />
             </div>
           ) : (forceDashboard || isHomeRoute || (!selectedSession && !isLoadingProjects && activeTab !== 'chat')) && projects.length > 0 && !splitMode ? (
               <Dashboard
