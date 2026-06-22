@@ -27,6 +27,7 @@ type PillProps = {
 export function Pill({ isActive, onClick, children, className }: PillProps) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className={cn(
         'flex touch-manipulation items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-all duration-150',
