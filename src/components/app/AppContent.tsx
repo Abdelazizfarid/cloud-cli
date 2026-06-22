@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
@@ -19,7 +19,7 @@ import { useTabsState } from '../../hooks/useTabsState';
 import { useUiPreferences } from '../../hooks/useUiPreferences';
 import { api } from '../../utils/api';
 
-const AGENT_CONTROL_PLANE_URL = 'https://agents.hooktrack.life/sessions/';
+const DEFAULT_AGENT_CONTROL_PLANE_URL = 'https://agents.hooktrack.life/sessions/';
 
 export default function AppContent() {
   return (
@@ -94,6 +94,21 @@ function AppContentInner() {
   const [splitMode, setSplitMode] = useState(false);
   const [showSyncPanel, setShowSyncPanel] = useState(false);
   const [showAgentControlPlane, setShowAgentControlPlane] = useState(false);
+  const agentControlPlaneUrl = useMemo(() => {
+    const baseUrl = (import.meta.env.VITE_AGENT_CONTROL_PLANE_URL || DEFAULT_AGENT_CONTROL_PLANE_URL).trim();
+    const token = (import.meta.env.VITE_AGENT_CONTROL_PLANE_TOKEN || '').trim();
+    const fallbackOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
+
+    try {
+      const parsedUrl = new URL(baseUrl, fallbackOrigin);
+      if (token) {
+        parsedUrl.searchParams.set('token', token);
+      }
+      return parsedUrl.toString();
+    } catch {
+      return baseUrl;
+    }
+  }, []);
 
   // Clear forceDashboard when navigating away from /home
   useEffect(() => {
@@ -106,6 +121,7 @@ function AppContentInner() {
   const handleTabSwitch = useCallback((tabId: string) => {
     setForceDashboard(false);
     setSplitMode(false);
+    setShowAgentControlPlane(false);
     switchTab(tabId);
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
@@ -201,22 +217,12 @@ function AppContentInner() {
     };
   }, [navigate, refreshProjectsSilently, setActiveTab, setSidebarOpen]);
 
-  useEffect(() => {
-    if (!showAgentControlPlane) {
-      return undefined;
-    }
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setShowAgentControlPlane(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleEscape);
-    return () => {
-      window.removeEventListener('keydown', handleEscape);
-    };
-  }, [showAgentControlPlane]);
+  const openAgentControlPlane = useCallback(() => {
+    setForceDashboard(false);
+    setSplitMode(false);
+    setShowAgentControlPlane(true);
+    setSidebarOpen(false);
+  }, [setSidebarOpen]);
 
   // Refresh projects when active sessions change (new session created)
   useEffect(() => {
@@ -305,7 +311,7 @@ function AppContentInner() {
           >
             <Sidebar
               {...sidebarSharedProps}
-              onOpenAgentControlPlane={() => setShowAgentControlPlane(true)}
+              onOpenAgentControlPlane={openAgentControlPlane}
             />
           </div>
           {!sidebarCollapsed && (
@@ -343,7 +349,7 @@ function AppContentInner() {
           >
             <Sidebar
               {...sidebarSharedProps}
-              onOpenAgentControlPlane={() => setShowAgentControlPlane(true)}
+              onOpenAgentControlPlane={openAgentControlPlane}
             />
           </div>
         </div>
@@ -376,63 +382,81 @@ function AppContentInner() {
               onCancel={() => setShowNewTabPicker(false)}
             />
           )}
-          {(forceDashboard || isHomeRoute || (!selectedSession && !isLoadingProjects && activeTab !== 'chat')) && projects.length > 0 && !splitMode ? (
-            <Dashboard
-              projects={projects}
-              activeSessions={activeSessions}
-              processingSessions={processingSessions}
-              onProjectSelect={(project) => { setForceDashboard(false); handleProjectSelect(project); }}
-              onSessionSelect={(session) => { setForceDashboard(false); handleSessionSelect(session); }}
-              onNewSession={(project) => { setForceDashboard(false); handleNewSession(project); }}
-              onProjectDelete={handleDashboardProjectDelete}
-              onProjectArchive={async (projectId) => {
-                try {
-                  const res = await api.archiveProject(projectId);
-                  if (res.ok) handleProjectDelete(projectId);
-                } catch (e) { console.error('Archive failed:', e); }
-              }}
-            />
-          ) : splitMode && tabs.length > 1 ? (
-            <SplitView
-              tabs={tabs}
-              activeTabId={activeTabId}
-              projects={projects}
-              ws={ws}
-              sendMessage={sendMessage}
-              latestMessage={latestMessage}
-              processingSessions={processingSessions}
-              onFocusTab={switchTab}
-              onSessionActive={markSessionAsActive}
-              onSessionInactive={markSessionAsInactive}
-              onSessionProcessing={markSessionAsProcessing}
-              onSessionNotProcessing={markSessionAsNotProcessing}
-            />
-          ) : (
-            <MainContent
-              selectedProject={selectedProject}
-              selectedSession={selectedSession}
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
-              ws={ws}
-              sendMessage={sendMessage}
-              latestMessage={latestMessage}
-              isMobile={isMobile}
-              onMenuClick={() => setSidebarOpen(true)}
-              isLoading={isLoadingProjects}
-              onInputFocusChange={setIsInputFocused}
-              onSessionActive={markSessionAsActive}
-              onSessionInactive={markSessionAsInactive}
-              onSessionProcessing={markSessionAsProcessing}
-              onSessionNotProcessing={markSessionAsNotProcessing}
-              processingSessions={processingSessions}
-              onNavigateToSession={(targetSessionId: string, options) =>
-                navigate(`/session/${targetSessionId}`, { replace: Boolean(options?.replace) })
-              }
-              onShowSettings={() => setShowSettings(true)}
-              externalMessageUpdate={externalMessageUpdate}
-              newSessionTrigger={newSessionTrigger}
-            />
-          )}
+          {showAgentControlPlane ? (
+            <div className="flex h-full flex-col overflow-hidden bg-background">
+              <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
+                <h2 className="text-sm font-semibold text-foreground">Agent Control Plane</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowAgentControlPlane(false)}
+                  className="rounded-md border border-border/60 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  Back to CloudCLI
+                </button>
+              </div>
+              <iframe
+                title="Agent Control Plane"
+                src={agentControlPlaneUrl}
+                className="h-full w-full border-0"
+              />
+            </div>
+          ) : (forceDashboard || isHomeRoute || (!selectedSession && !isLoadingProjects && activeTab !== 'chat')) && projects.length > 0 && !splitMode ? (
+              <Dashboard
+                projects={projects}
+                activeSessions={activeSessions}
+                processingSessions={processingSessions}
+                onProjectSelect={(project) => { setForceDashboard(false); handleProjectSelect(project); }}
+                onSessionSelect={(session) => { setForceDashboard(false); handleSessionSelect(session); }}
+                onNewSession={(project) => { setForceDashboard(false); handleNewSession(project); }}
+                onProjectDelete={handleDashboardProjectDelete}
+                onProjectArchive={async (projectId) => {
+                  try {
+                    const res = await api.archiveProject(projectId);
+                    if (res.ok) handleProjectDelete(projectId);
+                  } catch (e) { console.error('Archive failed:', e); }
+                }}
+              />
+            ) : splitMode && tabs.length > 1 ? (
+              <SplitView
+                tabs={tabs}
+                activeTabId={activeTabId}
+                projects={projects}
+                ws={ws}
+                sendMessage={sendMessage}
+                latestMessage={latestMessage}
+                processingSessions={processingSessions}
+                onFocusTab={switchTab}
+                onSessionActive={markSessionAsActive}
+                onSessionInactive={markSessionAsInactive}
+                onSessionProcessing={markSessionAsProcessing}
+                onSessionNotProcessing={markSessionAsNotProcessing}
+              />
+            ) : (
+              <MainContent
+                selectedProject={selectedProject}
+                selectedSession={selectedSession}
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+                ws={ws}
+                sendMessage={sendMessage}
+                latestMessage={latestMessage}
+                isMobile={isMobile}
+                onMenuClick={() => setSidebarOpen(true)}
+                isLoading={isLoadingProjects}
+                onInputFocusChange={setIsInputFocused}
+                onSessionActive={markSessionAsActive}
+                onSessionInactive={markSessionAsInactive}
+                onSessionProcessing={markSessionAsProcessing}
+                onSessionNotProcessing={markSessionAsNotProcessing}
+                processingSessions={processingSessions}
+                onNavigateToSession={(targetSessionId: string, options) =>
+                  navigate(`/session/${targetSessionId}`, { replace: Boolean(options?.replace) })
+                }
+                onShowSettings={() => setShowSettings(true)}
+                externalMessageUpdate={externalMessageUpdate}
+                newSessionTrigger={newSessionTrigger}
+              />
+            )}
         </div>
       </div>
 
@@ -444,28 +468,6 @@ function AppContentInner() {
       />
 
       {showSyncPanel && <SyncPanel onClose={() => setShowSyncPanel(false)} />}
-
-      {showAgentControlPlane && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4">
-          <div className="flex h-[92vh] w-[min(1400px,96vw)] flex-col overflow-hidden rounded-xl border border-border/70 bg-background shadow-2xl">
-            <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
-              <h2 className="text-sm font-semibold text-foreground">Agent Control Plane</h2>
-              <button
-                type="button"
-                onClick={() => setShowAgentControlPlane(false)}
-                className="rounded-md border border-border/60 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                Close
-              </button>
-            </div>
-            <iframe
-              title="Agent Control Plane"
-              src={AGENT_CONTROL_PLANE_URL}
-              className="h-full w-full border-0"
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
