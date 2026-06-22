@@ -5,6 +5,8 @@ const GEMINI_MODEL = (import.meta.env.VITE_GEMINI_TRANSCRIBE_MODEL || 'gemini-2.
 const GEMINI_URL = GEMINI_API_KEY
   ? `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`
   : null;
+const HIGH_DEMAND_RETRY_LIMIT = 5;
+const HIGH_DEMAND_RETRY_DELAY_MS = 5000;
 
 const RECORDING_MIME_CANDIDATES = [
   'audio/webm;codecs=opus',
@@ -83,42 +85,51 @@ export function useVoiceInput(onTranscription: (text: string) => void) {
       }
 
       const base64 = await blobToBase64(blob);
-
-      const res = await fetch(GEMINI_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  inlineData: {
-                    mimeType,
-                    data: base64,
-                  },
+      const body = JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                inlineData: {
+                  mimeType,
+                  data: base64,
                 },
-                {
-                  text: 'Transcribe this audio and output English text only. If speech is not English, translate it to English. Never include Arabic or bilingual output. Return only the final transcript sentence(s) with no labels or prefixes.',
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0,
+              },
+              {
+                text: 'Transcribe this audio and output English text only. If speech is not English, translate it to English. Never include Arabic or bilingual output. Return only the final transcript sentence(s) with no labels or prefixes.',
+              },
+            ],
           },
-        }),
+        ],
+        generationConfig: {
+          temperature: 0,
+        },
       });
 
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        const message = data?.error?.message || `HTTP ${res.status}`;
-        throw new Error(message);
-      }
+      for (let retryAttempt = 0; retryAttempt <= HIGH_DEMAND_RETRY_LIMIT; retryAttempt += 1) {
+        const res = await fetch(GEMINI_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        });
 
-      const text = extractGeminiText(data);
-      if (text) {
-        onTranscription(cleanTranscript(text));
-      } else {
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          const message = data?.error?.message || `HTTP ${res.status}`;
+          if (isHighDemandError(message) && retryAttempt < HIGH_DEMAND_RETRY_LIMIT) {
+            await delay(HIGH_DEMAND_RETRY_DELAY_MS);
+            continue;
+          }
+
+          throw new Error(message);
+        }
+
+        const text = extractGeminiText(data);
+        if (text) {
+          onTranscription(cleanTranscript(text));
+          return;
+        }
+
         console.error('Gemini transcription response:', data);
         throw new Error('No transcription text was returned by Gemini.');
       }
@@ -212,5 +223,17 @@ function blobToBase64(blob: Blob): Promise<string> {
     };
     reader.onerror = reject;
     reader.readAsDataURL(blob);
+  });
+}
+
+function isHighDemandError(message: string): boolean {
+  const normalizedMessage = message.toLowerCase();
+  return normalizedMessage.includes('currently experiencing high demand')
+    || normalizedMessage.includes('spikes in demand are usually temporary');
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
   });
 }
