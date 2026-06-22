@@ -19,6 +19,8 @@ import { useTabsState } from '../../hooks/useTabsState';
 import { useUiPreferences } from '../../hooks/useUiPreferences';
 import { api } from '../../utils/api';
 
+const AGENT_CONTROL_PLANE_URL = 'https://agents.hooktrack.life/sessions/';
+
 export default function AppContent() {
   return (
     <PaletteOpsProvider>
@@ -91,6 +93,7 @@ function AppContentInner() {
   const [forceDashboard, setForceDashboard] = useState(false);
   const [splitMode, setSplitMode] = useState(false);
   const [showSyncPanel, setShowSyncPanel] = useState(false);
+  const [showAgentControlPlane, setShowAgentControlPlane] = useState(false);
 
   // Clear forceDashboard when navigating away from /home
   useEffect(() => {
@@ -198,6 +201,23 @@ function AppContentInner() {
     };
   }, [navigate, refreshProjectsSilently, setActiveTab, setSidebarOpen]);
 
+  useEffect(() => {
+    if (!showAgentControlPlane) {
+      return undefined;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowAgentControlPlane(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [showAgentControlPlane]);
+
   // Refresh projects when active sessions change (new session created)
   useEffect(() => {
     if (activeSessions.size > 0) {
@@ -283,7 +303,10 @@ function AppContentInner() {
             className="h-full flex-shrink-0 border-r border-border/50 transition-[width] duration-150"
             style={{ width: sidebarCollapsed ? 'auto' : sidebarWidth }}
           >
-            <Sidebar {...sidebarSharedProps} />
+            <Sidebar
+              {...sidebarSharedProps}
+              onOpenAgentControlPlane={() => setShowAgentControlPlane(true)}
+            />
           </div>
           {!sidebarCollapsed && (
             <div
@@ -318,7 +341,10 @@ function AppContentInner() {
             onClick={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}
           >
-            <Sidebar {...sidebarSharedProps} />
+            <Sidebar
+              {...sidebarSharedProps}
+              onOpenAgentControlPlane={() => setShowAgentControlPlane(true)}
+            />
           </div>
         </div>
       )}
@@ -418,6 +444,28 @@ function AppContentInner() {
       />
 
       {showSyncPanel && <SyncPanel onClose={() => setShowSyncPanel(false)} />}
+
+      {showAgentControlPlane && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4">
+          <div className="flex h-[92vh] w-[min(1400px,96vw)] flex-col overflow-hidden rounded-xl border border-border/70 bg-background shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
+              <h2 className="text-sm font-semibold text-foreground">Agent Control Plane</h2>
+              <button
+                type="button"
+                onClick={() => setShowAgentControlPlane(false)}
+                className="rounded-md border border-border/60 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                Close
+              </button>
+            </div>
+            <iframe
+              title="Agent Control Plane"
+              src={AGENT_CONTROL_PLANE_URL}
+              className="h-full w-full border-0"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

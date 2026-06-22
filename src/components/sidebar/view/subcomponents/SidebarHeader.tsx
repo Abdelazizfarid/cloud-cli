@@ -22,6 +22,7 @@ type SidebarHeaderProps = {
   onRefresh: () => void;
   isRefreshing: boolean;
   onCreateProject: () => void;
+  onOpenAgentControlPlane: () => void;
   onCollapseSidebar: () => void;
   onShowSettings: () => void;
   t: TFunction;
@@ -42,6 +43,7 @@ export default function SidebarHeader({
   onRefresh,
   isRefreshing,
   onCreateProject,
+  onOpenAgentControlPlane,
   onCollapseSidebar,
   onShowSettings,
   t,
@@ -89,7 +91,7 @@ export default function SidebarHeader({
               variant="ghost"
               size="sm"
               className="h-7 w-7 rounded-lg p-0 text-muted-foreground hover:bg-accent/80 hover:text-foreground"
-              onClick={() => window.open('https://agents.hooktrack.life', '_blank')}
+              onClick={onOpenAgentControlPlane}
               title="Agent Control Plane"
             >
               <Bot className="h-3.5 w-3.5" />

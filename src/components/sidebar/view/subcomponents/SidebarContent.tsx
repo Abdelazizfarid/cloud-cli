@@ -209,6 +209,7 @@ type SidebarContentProps = {
   onRefresh: () => void;
   isRefreshing: boolean;
   onCreateProject: () => void;
+  onOpenAgentControlPlane: () => void;
   onCollapseSidebar: () => void;
   onShowSettings: () => void;
   projectListProps: SidebarProjectListProps;
@@ -240,6 +241,7 @@ export default function SidebarContent({
   onRefresh,
   isRefreshing,
   onCreateProject,
+  onOpenAgentControlPlane,
   onCollapseSidebar,
   onShowSettings,
   projectListProps,
@@ -269,6 +271,7 @@ export default function SidebarContent({
         onRefresh={onRefresh}
         isRefreshing={isRefreshing}
         onCreateProject={onCreateProject}
+        onOpenAgentControlPlane={onOpenAgentControlPlane}
         onCollapseSidebar={onCollapseSidebar}
         onShowSettings={onShowSettings}
         t={t}

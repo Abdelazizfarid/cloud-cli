@@ -34,6 +34,7 @@ function Sidebar({
   isLoading,
   loadingProgress,
   onRefresh,
+  onOpenAgentControlPlane,
   onShowSettings,
   showSettings,
   settingsInitialTab,
@@ -288,6 +289,7 @@ function Sidebar({
             }}
             isRefreshing={isRefreshing}
             onCreateProject={() => setShowNewProject(true)}
+            onOpenAgentControlPlane={onOpenAgentControlPlane ?? (() => {})}
             onCollapseSidebar={handleCollapseSidebar}
             onShowSettings={onShowSettings}
             projectListProps={projectListProps}
