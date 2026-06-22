@@ -390,7 +390,7 @@ function AppContentInner() {
             />
           )}
           {showAgentControlPlane ? (
-            <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
+            <div className="flex h-full min-w-0 flex-col overflow-hidden bg-background">
               <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
                 <h2 className="text-sm font-semibold text-foreground">Agent Control Plane</h2>
                 <div className="flex items-center gap-2">
@@ -414,7 +414,7 @@ function AppContentInner() {
                 key={String(agentControlPlaneCacheBust)}
                 title="Agent Control Plane"
                 src={agentControlPlaneUrl}
-                className="h-full w-full border-0"
+                className="min-h-0 flex-1 w-full border-0"
               />
             </div>
           ) : (forceDashboard || isHomeRoute || (!selectedSession && !isLoadingProjects && activeTab !== 'chat')) && projects.length > 0 && !splitMode ? (
