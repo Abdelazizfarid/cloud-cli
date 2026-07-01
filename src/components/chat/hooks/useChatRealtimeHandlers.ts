@@ -7,9 +7,15 @@ import { playChatCompletionSound } from '../../../utils/notificationSound';
 import type { PendingPermissionRequest, SessionNavigationOptions } from '../types/types';
 import type { ProjectSession, LLMProvider } from '../../../types/app';
 import type { SessionStore, NormalizedMessage } from '../../../stores/useSessionStore';
+import { appendStreamingText, flushStreamingBuffer, resetStreamingBuffer } from '../utils/streamingTextBuffer';
 
 type PendingViewSession = {
   startedAt: number;
+};
+
+type DirectStreamingState = {
+  active: boolean;
+  sessionId: string | null;
 };
 
 type LatestChatMessage = {
@@ -101,6 +107,7 @@ export function useChatRealtimeHandlers({
   const paletteOps = usePaletteOps();
   const lastProcessedMessageRef = useRef<LatestChatMessage | null>(null);
   const justCreatedSessionRef = useRef<string | null>(null);
+  const directStreamingRef = useRef<DirectStreamingState>({ active: false, sessionId: null });
 
   useEffect(() => {
     if (!latestMessage) return;
@@ -116,11 +123,80 @@ export function useChatRealtimeHandlers({
 
     const msg = latestMessage as any;
 
+    const syncDirectStreamingToStore = (sessionId: string | null | undefined): void => {
+      const streamSessionId = sessionId || directStreamingRef.current.sessionId;
+      if (!streamSessionId) {
+        return;
+      }
+
+      if (streamTimerRef.current) {
+        clearTimeout(streamTimerRef.current);
+        streamTimerRef.current = null;
+      }
+
+      const domText = flushStreamingBuffer();
+      const fullText = domText || accumulatedStreamRef.current;
+      if (fullText) {
+        sessionStore.updateStreaming(streamSessionId, fullText, provider);
+      }
+      accumulatedStreamRef.current = fullText;
+    };
+
+    const finalizeDirectStreaming = (sessionId: string | null | undefined): void => {
+      const streamSessionId = sessionId || directStreamingRef.current.sessionId;
+
+      if (streamTimerRef.current) {
+        clearTimeout(streamTimerRef.current);
+        streamTimerRef.current = null;
+      }
+
+      if (!streamSessionId) {
+        accumulatedStreamRef.current = '';
+        resetStreamingBuffer('');
+        directStreamingRef.current = { active: false, sessionId: null };
+        return;
+      }
+
+      syncDirectStreamingToStore(streamSessionId);
+      sessionStore.finalizeStreaming(streamSessionId);
+      accumulatedStreamRef.current = '';
+      resetStreamingBuffer('');
+      directStreamingRef.current = { active: false, sessionId: null };
+    };
+
+    const beginDirectStreaming = (sessionId: string): void => {
+      const directStreamingState = directStreamingRef.current;
+      if (directStreamingState.active && directStreamingState.sessionId === sessionId) {
+        return;
+      }
+
+      if (
+        directStreamingState.active
+        && directStreamingState.sessionId
+        && directStreamingState.sessionId !== sessionId
+      ) {
+        finalizeDirectStreaming(directStreamingState.sessionId);
+      }
+
+      if (streamTimerRef.current) {
+        clearTimeout(streamTimerRef.current);
+        streamTimerRef.current = null;
+      }
+
+      accumulatedStreamRef.current = '';
+      resetStreamingBuffer('');
+      sessionStore.updateStreaming(sessionId, '', provider);
+      directStreamingRef.current = { active: true, sessionId };
+    };
+
     if (!msg.kind) {
       const messageType = String(msg.type || '');
 
       switch (messageType) {
         case 'websocket-reconnected':
+          if (directStreamingRef.current.active) {
+            finalizeDirectStreaming(directStreamingRef.current.sessionId);
+          }
           onWebSocketReconnect?.();
           return;
 
@@ -183,39 +259,33 @@ export function useChatRealtimeHandlers({
 
     const sid = msg.sessionId || activeViewSessionId;
 
-    // --- Streaming: buffer for performance ---
+    // --- Streaming: direct DOM path for active session ---
     if (msg.kind === 'stream_delta') {
       const text = msg.content || '';
-      if (!text) return;
-      accumulatedStreamRef.current += text;
-      if (!streamTimerRef.current) {
-        streamTimerRef.current = window.setTimeout(() => {
-          streamTimerRef.current = null;
-          if (sid) {
-            sessionStore.updateStreaming(sid, accumulatedStreamRef.current, provider);
-          }
-        }, 30);
+      if (!text || !sid) return;
+
+      if (sid === activeViewSessionId) {
+        beginDirectStreaming(sid);
+        accumulatedStreamRef.current += text;
+        appendStreamingText(text);
+        return;
       }
-      // Also route to store for non-active sessions
-      if (sid && sid !== activeViewSessionId) {
-        sessionStore.appendRealtime(sid, msg as NormalizedMessage);
-      }
+
+      // Keep background sessions up to date in store.
+      sessionStore.appendRealtime(sid, msg as NormalizedMessage);
       return;
     }
 
     if (msg.kind === 'stream_end') {
-      if (streamTimerRef.current) {
-        clearTimeout(streamTimerRef.current);
-        streamTimerRef.current = null;
+      if (sid && directStreamingRef.current.active && directStreamingRef.current.sessionId === sid) {
+        finalizeDirectStreaming(sid);
       }
-      if (sid) {
-        if (accumulatedStreamRef.current) {
-          sessionStore.updateStreaming(sid, accumulatedStreamRef.current, provider);
-        }
-        sessionStore.finalizeStreaming(sid);
-      }
-      accumulatedStreamRef.current = '';
       return;
+    }
+
+    // For structural events that arrive mid-stream, sync buffered DOM text first.
+    if (sid && directStreamingRef.current.active && directStreamingRef.current.sessionId === sid) {
+      syncDirectStreamingToStore(sid);
     }
 
     // --- All other messages: route to store ---
@@ -268,16 +338,17 @@ export function useChatRealtimeHandlers({
       }
 
       case 'complete': {
-        // Flush any remaining streaming state
-        if (streamTimerRef.current) {
-          clearTimeout(streamTimerRef.current);
-          streamTimerRef.current = null;
+        if (sid && directStreamingRef.current.active && directStreamingRef.current.sessionId === sid) {
+          finalizeDirectStreaming(sid);
+        } else if (!directStreamingRef.current.active) {
+          if (streamTimerRef.current) {
+            clearTimeout(streamTimerRef.current);
+            streamTimerRef.current = null;
+          }
+          accumulatedStreamRef.current = '';
+          resetStreamingBuffer('');
+          directStreamingRef.current = { active: false, sessionId: null };
         }
-        if (sid && accumulatedStreamRef.current) {
-          sessionStore.updateStreaming(sid, accumulatedStreamRef.current, provider);
-          sessionStore.finalizeStreaming(sid);
-        }
-        accumulatedStreamRef.current = '';
 
         setIsLoading(false);
         setCanAbortSession(false);
@@ -326,6 +397,9 @@ export function useChatRealtimeHandlers({
       }
 
       case 'error': {
+        if (sid && directStreamingRef.current.active && directStreamingRef.current.sessionId === sid) {
+          finalizeDirectStreaming(sid);
+        }
         setIsLoading(false);
         setCanAbortSession(false);
         setClaudeStatus(null);
@@ -404,4 +478,23 @@ export function useChatRealtimeHandlers({
     sessionStore,
     paletteOps,
   ]);
+
+  useEffect(() => () => {
+    const streamSessionId = directStreamingRef.current.sessionId;
+    if (directStreamingRef.current.active && streamSessionId) {
+      const domText = flushStreamingBuffer();
+      const fullText = domText || accumulatedStreamRef.current;
+      if (fullText) {
+        sessionStore.updateStreaming(streamSessionId, fullText, provider);
+      }
+    }
+
+    if (streamTimerRef.current) {
+      clearTimeout(streamTimerRef.current);
+      streamTimerRef.current = null;
+    }
+    accumulatedStreamRef.current = '';
+    resetStreamingBuffer('');
+    directStreamingRef.current = { active: false, sessionId: null };
+  }, [accumulatedStreamRef, provider, sessionStore, streamTimerRef]);
 }

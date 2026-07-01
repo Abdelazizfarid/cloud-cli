@@ -971,3 +971,21 @@
 .chat-message.assistant .whitespace-pre-wrap {
   transition: all 0.15s ease-out;
 }
+
+.streaming-cursor::after {
+  content: '|';
+  margin-left: 1px;
+  opacity: 0.8;
+  animation: streaming-cursor-blink 1s steps(2, start) infinite;
+}
+
+@keyframes streaming-cursor-blink {
+  0%,
+  49% {
+    opacity: 0.8;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}

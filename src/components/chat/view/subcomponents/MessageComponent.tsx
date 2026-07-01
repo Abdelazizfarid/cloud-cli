@@ -15,6 +15,7 @@ import { Reasoning, ReasoningTrigger, ReasoningContent } from '../../../../share
 
 import { Markdown } from './Markdown';
 import MessageCopyControl from './MessageCopyControl';
+import StreamingText from './StreamingText';
 
 type DiffLine = {
   type: string;
@@ -552,12 +553,18 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
 
                   // Normal rendering for non-JSON content
                   return message.type === 'assistant' ? (
-                    <>
-                      <Markdown className="prose prose-sm prose-gray max-w-none dark:prose-invert">
-                        {content}
-                      </Markdown>
-                      <ScreenshotPreviews content={content} />
-                    </>
+                    message.isStreaming ? (
+                      <div className="whitespace-pre-wrap break-words">
+                        <StreamingText text={content} active />
+                      </div>
+                    ) : (
+                      <>
+                        <Markdown className="prose prose-sm prose-gray max-w-none dark:prose-invert">
+                          {content}
+                        </Markdown>
+                        <ScreenshotPreviews content={content} />
+                      </>
+                    )
                   ) : (
                     <div className="whitespace-pre-wrap">
                       {content}
