@@ -13,6 +13,31 @@ const STORAGE_KEY = 'voiceConfig';
 export const VOICE_CONFIG_SYNC_EVENT = 'voice-config:sync';
 const DEFAULTS: VoiceConfig = { baseUrl: '', apiKey: '', sttModel: '', ttsModel: '', ttsVoice: '', ttsFormat: '' };
 
+const MIGRATION_KEY = 'voiceConfig:geminiBackendReset';
+
+/**
+ * One-time clear of client-side voice overrides.
+ *
+ * Transcription runs through the server's Gemini backend. A stored `baseUrl`
+ * makes the browser POST to that URL directly and skip the server entirely,
+ * and a stored `sttModel` (typically a leftover `whisper-1`) is forwarded as an
+ * override that Gemini has no model for. Both are stale values from the
+ * pre-upgrade build, so drop them once per browser and let the server defaults
+ * apply. Users who genuinely want a custom backend can set one again.
+ */
+function resetLegacyVoiceConfig(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (localStorage.getItem(MIGRATION_KEY)) return;
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.setItem(MIGRATION_KEY, '1');
+  } catch {
+    // Storage unavailable (private mode). Nothing stored means nothing to clear.
+  }
+}
+
+resetLegacyVoiceConfig();
+
 export function readVoiceConfig(): VoiceConfig {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
