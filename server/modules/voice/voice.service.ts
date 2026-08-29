@@ -192,6 +192,10 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
           return { ok: false, status: 503, error: 'No voice backend configured' };
         }
         const url = `${config.geminiBaseUrl}/models/${encodeURIComponent(config.sttModel)}:generateContent`;
+        console.log(
+          `[voice] transcribe provider=gemini model=${config.sttModel} `
+          + `bytes=${input.audio.bytes.length} type=${input.audio.mimeType}`,
+        );
         try {
           const response = await dependencies.fetchBackend(url, {
             method: 'POST',
@@ -205,7 +209,9 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
           if (!response.ok) {
             return backendFailure(response.status, responseText);
           }
-          return { ok: true, value: { text: readGeminiText(responseText) } };
+          const text = readGeminiText(responseText);
+          console.log(`[voice] gemini transcript chars=${text.length}`);
+          return { ok: true, value: { text } };
         } catch (error) {
           return unreachableBackendFailure(error, dependencies.timeoutMs);
         }
@@ -216,6 +222,10 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
         return configurationFailure;
       }
 
+      console.log(
+        `[voice] transcribe provider=openai-compatible base=${config.baseUrl} `
+        + `model=${config.sttModel}`,
+      );
       try {
         const response = await dependencies.fetchBackend(
           `${config.baseUrl}/audio/transcriptions`,
