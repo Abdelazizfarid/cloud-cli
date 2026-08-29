@@ -86,6 +86,36 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
       },
     },
     {
+      value: 'claude-opus-5',
+      label: 'Opus 5',
+      description: 'Opus 5, pinned explicitly. The `opus` alias below resolves to Opus 4.8 on this install.',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
+          { value: 'max' },
+        ],
+      },
+    },
+    {
+      value: 'claude-opus-5[1m]',
+      label: 'Opus 5 (1M context)',
+      description: 'Opus 5 with a 1M context window.',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
+          { value: 'max' },
+        ],
+      },
+    },
+    {
       value: 'opus',
       label: 'Opus',
       description: 'Latest Opus model for complex reasoning and coding tasks.',
@@ -136,7 +166,7 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
       },
     },
   ],
-  DEFAULT: 'default',
+  DEFAULT: 'claude-opus-5',
 };
 
 export const findClaudeModelOption = (model: string | undefined | null): ProviderModelOption | null => {
