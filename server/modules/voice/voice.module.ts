@@ -19,7 +19,7 @@ const voiceService = createVoiceService({
     baseUrl: (process.env.VOICE_API_BASE_URL || '').replace(/\/$/, ''),
     apiKey: process.env.VOICE_API_KEY || '',
     sttModel: process.env.VOICE_STT_MODEL
-      || (process.env.VOICE_STT_PROVIDER === 'gemini' ? 'gemini-2.5-flash' : 'whisper-1'),
+      || (process.env.VOICE_STT_PROVIDER === 'gemini' ? 'gemini-3.5-flash' : 'whisper-1'),
     ttsModel: process.env.VOICE_TTS_MODEL || 'tts-1',
     ttsVoice: process.env.VOICE_TTS_VOICE || 'alloy',
   },

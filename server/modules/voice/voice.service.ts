@@ -137,8 +137,12 @@ const GEMINI_TRANSCRIBE_INSTRUCTION =
   + 'translate it to English. Never include Arabic or bilingual output. Return only '
   + 'the final transcript sentence(s) with no labels or prefixes.';
 
-function geminiTranscriptionBody(audio: VoiceAudioUpload): string {
+function geminiTranscriptionBody(audio: VoiceAudioUpload, disableThinking: boolean): string {
   return JSON.stringify({
+    // Transcription needs no reasoning, and leaving thinking on roughly doubles
+    // latency (measured ~2.0s -> ~1.1s median on gemini-3.5-flash). Some models
+    // reject thinkingConfig outright, so the caller retries without it on 400.
+    ...(disableThinking ? { generationConfig: { thinkingConfig: { thinkingBudget: 0 } } } : {}),
     contents: [
       {
         parts: [
@@ -196,15 +200,21 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
           `[voice] transcribe provider=gemini model=${config.sttModel} `
           + `bytes=${input.audio.bytes.length} type=${input.audio.mimeType}`,
         );
+        const callGemini = (disableThinking: boolean) => dependencies.fetchBackend(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': config.apiKey,
+          },
+          body: geminiTranscriptionBody(input.audio, disableThinking),
+        });
+
         try {
-          const response = await dependencies.fetchBackend(url, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-goog-api-key': config.apiKey,
-            },
-            body: geminiTranscriptionBody(input.audio),
-          });
+          let response = await callGemini(true);
+          if (response.status === 400) {
+            // Model does not accept thinkingConfig (e.g. gemini-3.6-flash); retry plainly.
+            response = await callGemini(false);
+          }
           const responseText = await response.text();
           if (!response.ok) {
             return backendFailure(response.status, responseText);
