@@ -14,6 +14,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
+import { fileURLToPath } from 'node:url';
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 
@@ -22,16 +23,23 @@ import type {
   AnyRecord,
   ApiSuccessShape,
   AppErrorOptions,
-  LLMProvider,
   NormalizedMessage,
-  ProviderChangeActiveModelInput,
   ProviderCurrentActiveModel,
   ProviderModelsDefinition,
-  ProviderSessionActiveModelChange,
   ProviderSkillSource,
   WorkspacePathValidationResult,
 } from '@/shared/types.js';
 
+//----------------- ENVIRONMENT UTILITIES ------------
+/**
+ * Indicates whether the backend is running in hosted Platform mode rather than
+ * self-hosted OSS mode. The server bootstrap, Agent, Auth, and Browser Use
+ * modules use this shared flag to keep environment-dependent behavior aligned.
+ * Environment variables must be loaded before this module is evaluated.
+ */
+export const IS_PLATFORM = process.env.VITE_IS_PLATFORM === 'true';
+
+// ---------------------------
 //----------------- NORMALIZED MESSAGE HELPER INPUT TYPES ------------
 /**
  * Input payload accepted by `createNormalizedMessage`.
@@ -346,6 +354,84 @@ export function createNormalizedMessage(fields: NormalizedMessageInput): Normali
   };
 }
 
+/**
+ * Build the unified terminal `complete` lifecycle message.
+ *
+ * Contract: every provider run ends with exactly one `complete` (the
+ * abort-session handler emits it on behalf of cancelled runs, so aborted runs
+ * must NOT emit their own). The frontend treats `complete` as the only
+ * terminal signal and never needs provider-specific handling:
+ *
+ * - `sessionId`     — the id the client knows this run by ('' if never discovered)
+ * - `actualSessionId` — canonical id after the run; equals `sessionId` unless
+ *                       the provider rewrote it mid-run
+ * - `exitCode`      — 0 on success; a missing/null code (e.g. killed process)
+ *                     is reported as failure
+ * - `success`       — exitCode === 0 and not aborted
+ * - `aborted`       — run was cancelled by the user
+ */
+export function createCompleteMessage(opts: {
+  provider: NormalizedMessage['provider'];
+  sessionId?: string | null;
+  actualSessionId?: string | null;
+  exitCode?: number | null;
+  aborted?: boolean;
+}): NormalizedMessage {
+  const exitCode = typeof opts.exitCode === 'number' ? opts.exitCode : 1;
+  const aborted = Boolean(opts.aborted);
+
+  return createNormalizedMessage({
+    kind: 'complete',
+    provider: opts.provider,
+    sessionId: opts.sessionId || null,
+    actualSessionId: opts.actualSessionId || opts.sessionId || null,
+    exitCode,
+    success: exitCode === 0 && !aborted,
+    aborted,
+  });
+}
+
+// ---------------------------
+//----------------- CONVERSATION HISTORY PAGINATION UTILITIES ------------
+/**
+ * Slices one page from the END of a chronologically ordered message list.
+ *
+ * This is the single pagination contract for conversation history across all
+ * providers: `offset = 0` returns the most recent `limit` items, increasing
+ * offsets walk backwards in time (for "scroll up to load older" UIs), and a
+ * `null` limit returns everything. Items must already be sorted oldest-first;
+ * the returned page preserves that order.
+ *
+ * Every provider history reader must use this helper instead of slicing
+ * manually so `offset`/`limit` query params behave identically regardless of
+ * which provider produced the session.
+ */
+export function sliceTailPage<T>(
+  items: T[],
+  limit: number | null,
+  offset: number,
+): { page: T[]; hasMore: boolean } {
+  const total = items.length;
+  const normalizedOffset = Math.max(0, offset);
+
+  if (limit === null) {
+    // A null limit returns the full list; offset still trims newest entries
+    // so "everything before the page I already have" stays expressible.
+    const end = Math.max(0, total - normalizedOffset);
+    return {
+      page: items.slice(0, end),
+      hasMore: false,
+    };
+  }
+
+  const end = Math.max(0, total - normalizedOffset);
+  const start = Math.max(0, end - Math.max(0, limit));
+  return {
+    page: items.slice(start, end),
+    hasMore: start > 0,
+  };
+}
+
 // ---------------------------
 //----------------- MCP CONFIG PARSING UTILITIES ------------
 /**
@@ -434,213 +520,6 @@ export function buildDefaultProviderCurrentActiveModel(
 ): ProviderCurrentActiveModel {
   return {
     model: models.DEFAULT,
-  };
-}
-
-// ---------------------------
-//----------------- PROVIDER SESSION MODEL CHANGE UTILITIES ------------
-type ProviderSessionActiveModelChangeCacheEntry = ProviderSessionActiveModelChange & {
-  updatedAt: string;
-};
-
-type ProviderSessionActiveModelChangeCacheFile = {
-  version: number;
-  entries: Record<string, ProviderSessionActiveModelChangeCacheEntry>;
-};
-
-const PROVIDER_SESSION_ACTIVE_MODEL_CHANGE_CACHE_VERSION = 1;
-
-/**
- * Resolves the backend-owned cache file used for session-scoped resume model
- * overrides.
- *
- * The file lives under `~/.cloudcli` because these overrides are an application
- * concern rather than a provider-native config file. Providers, routes, and
- * runtime command launchers should all use this helper instead of re-creating
- * the path so the storage location stays consistent.
- */
-export function getProviderSessionActiveModelChangesPath(): string {
-  return path.join(os.homedir(), '.cloudcli', 'provider-session-active-model-changes.json');
-}
-
-const buildProviderSessionActiveModelChangeKey = (
-  provider: LLMProvider,
-  sessionId: string,
-): string => `${provider}:${sessionId}`;
-
-const isProviderSessionActiveModelChangeCacheEntry = (
-  value: unknown,
-): value is ProviderSessionActiveModelChangeCacheEntry => {
-  const record = readObjectRecord(value);
-  return Boolean(
-    record
-    && typeof record.provider === 'string'
-    && typeof record.sessionId === 'string'
-    && typeof record.supported === 'boolean'
-    && typeof record.changed === 'boolean'
-    && (typeof record.model === 'string' || record.model === null)
-    && typeof record.updatedAt === 'string',
-  );
-};
-
-const readProviderSessionActiveModelChangeCacheFile = async (
-  filePath: string,
-): Promise<ProviderSessionActiveModelChangeCacheFile> => {
-  try {
-    const raw = await readFile(filePath, 'utf8');
-    const parsed = readObjectRecord(JSON.parse(raw));
-    if (
-      !parsed
-      || parsed.version !== PROVIDER_SESSION_ACTIVE_MODEL_CHANGE_CACHE_VERSION
-      || !readObjectRecord(parsed.entries)
-    ) {
-      return {
-        version: PROVIDER_SESSION_ACTIVE_MODEL_CHANGE_CACHE_VERSION,
-        entries: {},
-      };
-    }
-
-    const entries = Object.fromEntries(
-      Object.entries(parsed.entries).filter((entry): entry is [string, ProviderSessionActiveModelChangeCacheEntry] =>
-        isProviderSessionActiveModelChangeCacheEntry(entry[1]),
-      ),
-    );
-
-    return {
-      version: PROVIDER_SESSION_ACTIVE_MODEL_CHANGE_CACHE_VERSION,
-      entries,
-    };
-  } catch {
-    return {
-      version: PROVIDER_SESSION_ACTIVE_MODEL_CHANGE_CACHE_VERSION,
-      entries: {},
-    };
-  }
-};
-
-const writeProviderSessionActiveModelChangeCacheFile = async (
-  filePath: string,
-  payload: ProviderSessionActiveModelChangeCacheFile,
-): Promise<void> => {
-  await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-};
-
-const buildUnsupportedProviderSessionActiveModelChange = (
-  provider: LLMProvider,
-  sessionId: string,
-): ProviderSessionActiveModelChange => ({
-  provider,
-  sessionId,
-  supported: false,
-  changed: false,
-  model: null,
-});
-
-/**
- * Reads the persisted session model-change state for one provider session.
- *
- * Runtime resume paths use this to decide whether they should inject a
- * provider-specific model argument/thread option for the next resumed turn.
- * Missing cache entries are normalized to `{ changed: false }` so callers can
- * treat absence as "use the ordinary model selection flow".
- */
-export async function readProviderSessionActiveModelChange(
-  provider: LLMProvider,
-  sessionId: string,
-  options: {
-    filePath?: string;
-    supported?: boolean;
-  } = {},
-): Promise<ProviderSessionActiveModelChange> {
-  const normalizedSessionId = sessionId.trim();
-  if (!normalizedSessionId) {
-    return buildUnsupportedProviderSessionActiveModelChange(provider, normalizedSessionId);
-  }
-
-  const supported = options.supported ?? true;
-  if (!supported) {
-    return buildUnsupportedProviderSessionActiveModelChange(provider, normalizedSessionId);
-  }
-
-  const filePath = options.filePath ?? getProviderSessionActiveModelChangesPath();
-  const cacheFile = await readProviderSessionActiveModelChangeCacheFile(filePath);
-  const cacheEntry = cacheFile.entries[
-    buildProviderSessionActiveModelChangeKey(provider, normalizedSessionId)
-  ];
-
-  if (!cacheEntry || !cacheEntry.changed || !cacheEntry.model?.trim()) {
-    return {
-      provider,
-      sessionId: normalizedSessionId,
-      supported: true,
-      changed: false,
-      model: null,
-    };
-  }
-
-  return {
-    provider,
-    sessionId: normalizedSessionId,
-    supported: true,
-    changed: true,
-    model: cacheEntry.model.trim(),
-  };
-}
-
-/**
- * Persists a session model-change request for one provider.
- *
- * Provider adapters call this when the frontend explicitly selects a different
- * model for an existing session. The stored `changed: true` flag is the single
- * source of truth used later by resume paths to decide whether they should add
- * a provider-native model override on the next invocation.
- */
-export async function writeProviderSessionActiveModelChange(
-  provider: LLMProvider,
-  input: ProviderChangeActiveModelInput,
-  options: {
-    filePath?: string;
-    supported?: boolean;
-  } = {},
-): Promise<ProviderSessionActiveModelChange> {
-  const normalizedSessionId = input.sessionId.trim();
-  const normalizedModel = input.model.trim();
-  const supported = options.supported ?? true;
-
-  if (!supported) {
-    return buildUnsupportedProviderSessionActiveModelChange(provider, normalizedSessionId);
-  }
-
-  if (!normalizedSessionId || !normalizedModel) {
-    return {
-      provider,
-      sessionId: normalizedSessionId,
-      supported: true,
-      changed: false,
-      model: null,
-    };
-  }
-
-  const filePath = options.filePath ?? getProviderSessionActiveModelChangesPath();
-  const cacheFile = await readProviderSessionActiveModelChangeCacheFile(filePath);
-  cacheFile.entries[buildProviderSessionActiveModelChangeKey(provider, normalizedSessionId)] = {
-    provider,
-    sessionId: normalizedSessionId,
-    supported: true,
-    changed: true,
-    model: normalizedModel,
-    updatedAt: new Date().toISOString(),
-  };
-
-  await writeProviderSessionActiveModelChangeCacheFile(filePath, cacheFile);
-
-  return {
-    provider,
-    sessionId: normalizedSessionId,
-    supported: true,
-    changed: true,
-    model: normalizedModel,
   };
 }
 
@@ -832,7 +711,7 @@ export async function findProviderSkillMarkdownFiles(
     }
 
     for (const entry of entries) {
-      if (entry.isDirectory()) {
+      if (entry.isDirectory() || entry.isSymbolicLink()) {
         await collectRecursive(path.join(dirPath, entry.name));
       }
     }
@@ -847,7 +726,7 @@ export async function findProviderSkillMarkdownFiles(
     const entries = await readdir(rootDir, { withFileTypes: true });
 
     for (const entry of entries) {
-      if (!entry.isDirectory()) {
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) {
         continue;
       }
 
@@ -879,9 +758,25 @@ export async function readProviderSkillMarkdownDefinition(
   skillPath: string,
 ): Promise<{ name: string; description: string }> {
   const content = await readFile(skillPath, 'utf8');
+  return readProviderSkillMarkdownDefinitionFromContent(
+    content,
+    path.basename(path.dirname(skillPath)),
+  );
+}
+
+/**
+ * Reads the `name` and `description` fields from raw skill markdown content.
+ *
+ * This keeps filesystem discovery and newly uploaded skill creation aligned on
+ * the same front matter parsing rules. `fallbackName` is used when the markdown
+ * omits a `name` field so callers still get a stable, non-empty skill id.
+ */
+export function readProviderSkillMarkdownDefinitionFromContent(
+  content: string,
+  fallbackName: string,
+): { name: string; description: string } {
   const parsed = parseFrontMatter(content);
   const data = readObjectRecord(parsed.data) ?? {};
-  const fallbackName = path.basename(path.dirname(skillPath));
 
   return {
     name: readOptionalString(data.name) ?? fallbackName,
@@ -970,6 +865,30 @@ export function readJsonRecord(value: unknown): AnyRecord | null {
  */
 export function getOpenCodeDatabasePath(): string {
   return path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
+}
+
+/**
+ * Decodes an OpenCode text payload that was persisted as a JSON string literal.
+ *
+ * OpenCode can store the first user prompt (and other text parts) as `"hello"`
+ * instead of `hello`. Used by both the OpenCode session reader (transcript
+ * history) and the OpenCode synchronizer (session titling) so a session name or
+ * message body never surfaces with surrounding quote characters. Only fully
+ * quoted, valid JSON string literals are unwrapped; ordinary prose that merely
+ * happens to start/end with a quote is returned untouched.
+ */
+export function unwrapJsonStringLiteral(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('"') || !trimmed.endsWith('"')) {
+    return value;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    return typeof parsed === 'string' ? parsed : value;
+  } catch {
+    return value;
+  }
 }
 
 // ---------------------------
@@ -1145,3 +1064,98 @@ export async function extractFirstValidJsonlData<T>(
   return null;
 }
 
+// ---------------------------
+//----------------- CLI PROMPT ARGUMENT UTILITIES ------------
+/**
+ * Makes a prompt safe to pass as one CLI argument to `.cmd`-shimmed tools on
+ * Windows (cursor-agent and opencode installed via npm-style shims).
+ *
+ * cmd.exe cannot carry newlines inside an argument: everything after the
+ * first newline is silently dropped before the target CLI ever sees it, which
+ * truncates multi-line prompts and any appended `<images_input>` block.
+ * Collapsing newline runs to single spaces loses formatting but never loses
+ * content, so runtimes should call this on win32 right before spawning.
+ *
+ * Used by the cursor and opencode spawn runtimes.
+ */
+export function flattenPromptForWindowsShell(prompt: string): string {
+  if (process.platform !== 'win32' || typeof prompt !== 'string') {
+    return prompt;
+  }
+  return prompt.replace(/\s*\r?\n\s*/g, ' ').trim();
+}
+
+// ---------------------------
+//----------------- TERMINAL OUTPUT UTILITIES ------------
+const ANSI_TERMINAL_STYLES = {
+  reset: '\x1b[0m',
+  bright: '\x1b[1m',
+  dim: '\x1b[2m',
+  cyan: '\x1b[36m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+} as const;
+
+/**
+ * Applies the small, consistent ANSI style vocabulary used by backend
+ * terminal output. The CLI and server bootstrap share these formatters so
+ * status, warning, and startup messages use one implementation. Callers
+ * should pass complete display strings and write the returned value directly
+ * to stdout or stderr; the reset suffix prevents styling subsequent output.
+ */
+export const terminalTextStyles = {
+  info: (text: string): string =>
+    `${ANSI_TERMINAL_STYLES.cyan}${text}${ANSI_TERMINAL_STYLES.reset}`,
+  ok: (text: string): string =>
+    `${ANSI_TERMINAL_STYLES.green}${text}${ANSI_TERMINAL_STYLES.reset}`,
+  warn: (text: string): string =>
+    `${ANSI_TERMINAL_STYLES.yellow}${text}${ANSI_TERMINAL_STYLES.reset}`,
+  error: (text: string): string =>
+    `${ANSI_TERMINAL_STYLES.yellow}${text}${ANSI_TERMINAL_STYLES.reset}`,
+  tip: (text: string): string =>
+    `${ANSI_TERMINAL_STYLES.blue}${text}${ANSI_TERMINAL_STYLES.reset}`,
+  bright: (text: string): string =>
+    `${ANSI_TERMINAL_STYLES.bright}${text}${ANSI_TERMINAL_STYLES.reset}`,
+  dim: (text: string): string =>
+    `${ANSI_TERMINAL_STYLES.dim}${text}${ANSI_TERMINAL_STYLES.reset}`,
+};
+
+// ---------------------------
+//----------------- RUNTIME PATH RESOLUTION UTILITIES ------------
+/**
+ * Resolves the directory containing an ES module from `import.meta.url`.
+ * Backend entrypoints and feature composition roots use this instead of
+ * recreating CommonJS `__dirname` logic.
+ */
+export function getModuleDirectory(importMetaUrl: string): string {
+  return path.dirname(fileURLToPath(importMetaUrl));
+}
+
+/**
+ * Walks upward to the nearest `server` directory in either source or compiled
+ * output. Callers use this stable anchor for server-relative resources.
+ */
+export function findServerRoot(startDirectory: string): string {
+  let currentDirectory = startDirectory;
+  while (path.basename(currentDirectory) !== 'server') {
+    const parentDirectory = path.dirname(currentDirectory);
+    if (parentDirectory === currentDirectory) {
+      throw new Error(`Could not resolve the backend server root from "${startDirectory}".`);
+    }
+    currentDirectory = parentDirectory;
+  }
+  return currentDirectory;
+}
+
+/**
+ * Resolves the application root from a source or `dist-server/server` path so
+ * package-level resources work identically before and after compilation.
+ */
+export function findApplicationRoot(startDirectory: string): string {
+  const serverRoot = findServerRoot(startDirectory);
+  const parentDirectory = path.dirname(serverRoot);
+  return path.basename(parentDirectory) === 'dist-server'
+    ? path.dirname(parentDirectory)
+    : parentDirectory;
+}

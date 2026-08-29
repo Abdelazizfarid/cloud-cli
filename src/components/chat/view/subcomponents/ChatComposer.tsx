@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ChangeEvent,
   ClipboardEvent,
@@ -9,9 +10,14 @@ import type {
   RefObject,
   TouchEvent,
 } from 'react';
-import { ImageIcon, MessageSquareIcon, XIcon, ArrowDownIcon, MicIcon, LoaderIcon } from 'lucide-react';
+import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, ArrowUpIcon } from 'lucide-react';
 
-import type { PendingPermissionRequest, PermissionMode, Provider } from '../../types/types';
+import { useVoiceInput } from '../../hooks/useVoiceInput';
+import { useVoiceAvailable } from '../../hooks/useVoiceAvailable';
+import type { QueuedDraft } from '../../hooks/useChatComposerState';
+import type { SessionActivity } from '../../../../hooks/useSessionProtection';
+import type { PendingPermissionRequest, PermissionMode } from '../../types/types';
+import type { ProviderModelOption } from '../../../../types/app';
 import {
   PromptInput,
   PromptInputHeader,
@@ -24,11 +30,14 @@ import {
 } from '../../../../shared/view/ui';
 
 import CommandMenu from './CommandMenu';
-import ClaudeStatus from './ClaudeStatus';
-import ImageAttachment from './ImageAttachment';
+import ActivityIndicator from './ActivityIndicator';
+import ComposerAttachment from './ComposerAttachment';
+import VoiceInputButton from './VoiceInputButton';
 import PermissionRequestsBanner from './PermissionRequestsBanner';
 import TokenUsageSummary from './TokenUsageSummary';
-import { useVoiceInput } from '../../hooks/useVoiceInput';
+import QueuedMessageCard from './QueuedMessageCard';
+import ComposerModelMenu from './ComposerModelMenu';
+import ComposerPermissionMenu from './ComposerPermissionMenu';
 
 interface MentionableFile {
   name: string;
@@ -52,28 +61,35 @@ interface ChatComposerProps {
     decision: { allow?: boolean; message?: string; rememberEntry?: string | null; updatedInput?: unknown },
   ) => void;
   handleGrantToolPermission: (suggestion: { entry: string; toolName: string }) => { success: boolean };
-  claudeStatus: { text: string; tokens: number; can_interrupt: boolean } | null;
+  activity: SessionActivity | null;
   isLoading: boolean;
-  processingStartTime?: number | null;
   onAbortSession: () => void;
-  provider: Provider | string;
   permissionMode: PermissionMode | string;
-  onModeSwitch: () => void;
+  availablePermissionModes: (PermissionMode | string)[];
+  onSelectPermissionMode: (mode: PermissionMode | string) => void;
+  providerLabel: string;
+  effort: string;
+  availableEffortOptions: NonNullable<ProviderModelOption['effort']>['values'];
+  onSelectEffort: (effort: string) => void;
+  model: string;
+  availableModelOptions: ProviderModelOption[];
+  onSelectModel: (model: string) => void;
+  modelsLoading: boolean;
   tokenBudget: Record<string, unknown> | null;
   onShowTokenUsage: () => void;
   slashCommandsCount: number;
   onToggleCommandMenu: () => void;
   hasInput: boolean;
   onClearInput: () => void;
-  isUserScrolledUp: boolean;
-  hasMessages: boolean;
-  onScrollToBottom: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement> | MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement>) => void;
   isDragActive: boolean;
-  attachedImages: File[];
-  onRemoveImage: (index: number) => void;
-  uploadingImages: Map<string, number>;
-  imageErrors: Map<string, string>;
+  queuedDraft: QueuedDraft | null;
+  onEditQueuedDraft: () => void;
+  onDeleteQueuedDraft: () => void;
+  attachedFiles: File[];
+  onRemoveAttachment: (index: number) => void;
+  uploadingFiles: Map<string, number>;
+  fileErrors: Map<string, string>;
   showFileDropdown: boolean;
   filteredFiles: MentionableFile[];
   selectedFileIndex: number;
@@ -86,17 +102,19 @@ interface ChatComposerProps {
   frequentCommands: SlashCommand[];
   getRootProps: (...args: unknown[]) => Record<string, unknown>;
   getInputProps: (...args: unknown[]) => Record<string, unknown>;
-  openImagePicker: () => void;
+  openAttachmentPicker: () => void;
   inputHighlightRef: RefObject<HTMLDivElement>;
   renderInputWithMentions: (text: string) => ReactNode;
   textareaRef: RefObject<HTMLTextAreaElement>;
   input: string;
+  onVoiceTranscript?: (text: string, send?: boolean) => void;
   onInputChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
   onTextareaClick: (event: MouseEvent<HTMLTextAreaElement>) => void;
   onTextareaKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onTextareaPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
   onTextareaScrollSync: (target: HTMLTextAreaElement) => void;
   onTextareaInput: (event: FormEvent<HTMLTextAreaElement>) => void;
+  isInputFocused?: boolean;
   onInputFocusChange?: (focused: boolean) => void;
   placeholder: string;
   isTextareaExpanded: boolean;
@@ -107,28 +125,35 @@ export default function ChatComposer({
   pendingPermissionRequests,
   handlePermissionDecision,
   handleGrantToolPermission,
-  claudeStatus,
+  activity,
   isLoading,
-  processingStartTime,
   onAbortSession,
-  provider,
   permissionMode,
-  onModeSwitch,
+  availablePermissionModes,
+  onSelectPermissionMode,
+  providerLabel,
+  effort,
+  availableEffortOptions,
+  onSelectEffort,
+  model,
+  availableModelOptions,
+  onSelectModel,
+  modelsLoading,
   tokenBudget,
   onShowTokenUsage,
   slashCommandsCount,
   onToggleCommandMenu,
   hasInput,
   onClearInput,
-  isUserScrolledUp,
-  hasMessages,
-  onScrollToBottom,
   onSubmit,
   isDragActive,
-  attachedImages,
-  onRemoveImage,
-  uploadingImages,
-  imageErrors,
+  queuedDraft,
+  onEditQueuedDraft,
+  onDeleteQueuedDraft,
+  attachedFiles,
+  onRemoveAttachment,
+  uploadingFiles,
+  fileErrors,
   showFileDropdown,
   filteredFiles,
   selectedFileIndex,
@@ -141,40 +166,78 @@ export default function ChatComposer({
   frequentCommands,
   getRootProps,
   getInputProps,
-  openImagePicker,
+  openAttachmentPicker,
   inputHighlightRef,
   renderInputWithMentions,
   textareaRef,
   input,
+  onVoiceTranscript,
   onInputChange,
   onTextareaClick,
   onTextareaKeyDown,
   onTextareaPaste,
   onTextareaScrollSync,
   onTextareaInput,
+  isInputFocused = false,
   onInputFocusChange,
   placeholder,
   isTextareaExpanded,
   sendByCtrlEnter,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
-
-  const { isRecording, isProcessing, toggleRecording } = useVoiceInput((text) => {
-    if (textareaRef.current) {
-      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-        window.HTMLTextAreaElement.prototype, 'value'
-      )?.set;
-      nativeInputValueSetter?.call(textareaRef.current, input ? input + ' ' + text : text);
-      textareaRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+  const fileDropdownRef = useRef<HTMLDivElement | null>(null);
+  const selectedFileRef = useRef<HTMLDivElement | null>(null);
+  const commandMenuPosition = useMemo(() => {
+    if (!isCommandMenuOpen) {
+      return { top: 0, left: 16, bottom: 90 };
     }
-  });
+    const textareaRect = textareaRef.current?.getBoundingClientRect();
+    return {
+      top: textareaRect ? Math.max(16, textareaRect.top - 316) : 0,
+      left: textareaRect ? textareaRect.left : 16,
+      bottom: textareaRect ? window.innerHeight - textareaRect.top + 8 : 90,
+    };
+  }, [isCommandMenuOpen, textareaRef]);
 
-  const textareaRect = textareaRef.current?.getBoundingClientRect();
-  const commandMenuPosition = {
-    top: textareaRect ? Math.max(16, textareaRect.top - 316) : 0,
-    left: textareaRect ? textareaRect.left : 16,
-    bottom: textareaRect ? window.innerHeight - textareaRect.top + 8 : 90,
-  };
+  useEffect(() => {
+    const dropdown = fileDropdownRef.current;
+    const selectedFile = selectedFileRef.current;
+    if (!showFileDropdown || !dropdown || !selectedFile) {
+      return;
+    }
+
+    const itemTop = selectedFile.offsetTop;
+    const itemBottom = itemTop + selectedFile.offsetHeight;
+    const visibleTop = dropdown.scrollTop;
+    const visibleBottom = visibleTop + dropdown.clientHeight;
+
+    if (itemTop < visibleTop) {
+      dropdown.scrollTop = itemTop;
+    } else if (itemBottom > visibleBottom) {
+      dropdown.scrollTop = itemBottom - dropdown.clientHeight;
+    }
+  }, [selectedFileIndex, showFileDropdown]);
+
+  // Voice state is hosted here (not in the mic button) so the main Send button can stop
+  // recording and send the transcript in one tap, the way the mic button drops it in the box.
+  const voiceAvailable = useVoiceAvailable();
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const voiceErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleVoiceError = useCallback((msg: string) => {
+    setVoiceError(msg);
+    if (voiceErrorTimer.current) clearTimeout(voiceErrorTimer.current);
+    voiceErrorTimer.current = setTimeout(() => setVoiceError(null), 4000);
+  }, []);
+  useEffect(() => () => {
+    if (voiceErrorTimer.current) clearTimeout(voiceErrorTimer.current);
+  }, []);
+  const noopTranscript = useCallback(() => {}, []);
+  const { state: voiceState, toggle: voiceToggle, stop: voiceStop } = useVoiceInput(
+    onVoiceTranscript ?? noopTranscript,
+    handleVoiceError,
+  );
+  const isRecording = voiceState === 'recording';
+  const isTranscribing = voiceState === 'transcribing';
 
   // Detect if the AskUserQuestion interactive panel is active
   const hasQuestionPanel = pendingPermissionRequests.some(
@@ -183,21 +246,35 @@ export default function ChatComposer({
 
   // Hide the thinking/status bar while any permission request is pending
   const hasPendingPermissions = pendingPermissionRequests.length > 0;
+  const hasActivityIndicator = Boolean(activity && !hasPendingPermissions);
+
+  const hasQueuedDraft = Boolean(queuedDraft);
+  const canQueueDraft = isLoading && Boolean(input.trim() || attachedFiles.length > 0);
+  const submitHint = canQueueDraft
+    ? hasQueuedDraft
+      ? t('input.hintText.updateQueued', { defaultValue: 'Enter to update queued message' })
+      : t('input.hintText.queue', { defaultValue: 'Enter to queue your next message' })
+    : sendByCtrlEnter
+      ? t('input.hintText.ctrlEnter')
+      : t('input.hintText.enter');
+  const submitAriaLabel = canQueueDraft
+    ? hasQueuedDraft
+      ? t('input.queue.update', { defaultValue: 'Update queued message' })
+      : t('input.queue.sendNext', { defaultValue: 'Queue next message' })
+    : isLoading
+      ? t('input.stop')
+      : t('input.send');
 
   return (
-    <div className="flex-shrink-0 p-2 pb-2 sm:p-4 sm:pb-4 md:p-4 md:pb-6">
+    <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-2 pt-0 sm:px-4 sm:pb-4 md:px-4 md:pb-6">
       {!hasPendingPermissions && (
-        <ClaudeStatus
-          status={claudeStatus}
-          isLoading={isLoading}
-          startedAt={processingStartTime}
-          onAbort={onAbortSession}
-          provider={provider}
-        />
+        <div className="pointer-events-none absolute bottom-full left-1/2 z-10 w-[calc(100%-1rem)] max-w-[54.25rem] -translate-x-1/2 translate-y-px bg-transparent sm:w-[calc(100%-2rem)]">
+          <ActivityIndicator activity={activity} onAbort={onAbortSession} isInputFocused={isInputFocused} />
+        </div>
       )}
 
       {pendingPermissionRequests.length > 0 && (
-        <div className="mx-auto mb-3 max-w-4xl">
+        <div className="mx-auto mb-3 max-w-[54.25rem]">
           <PermissionRequestsBanner
             pendingPermissionRequests={pendingPermissionRequests}
             handlePermissionDecision={handlePermissionDecision}
@@ -206,24 +283,27 @@ export default function ChatComposer({
         </div>
       )}
 
-      {!hasQuestionPanel && <div className="relative mx-auto max-w-4xl">
-        {isUserScrolledUp && hasMessages && (
-          <div className="absolute -top-10 left-0 right-0 z-10 flex justify-center">
-            <button
-              type="button"
-              onClick={onScrollToBottom}
-              className="flex h-8 w-8 items-center justify-center rounded-full border border-border/50 bg-card text-muted-foreground shadow-sm transition-all duration-200 hover:bg-accent hover:text-foreground"
-              title={t('input.scrollToBottom', { defaultValue: 'Scroll to bottom' })}
-            >
-              <ArrowDownIcon className="h-4 w-4" />
-            </button>
-          </div>
-        )}
+      {queuedDraft && (
+        <QueuedMessageCard
+          content={queuedDraft.content}
+          attachmentCount={
+            queuedDraft.uploadedAttachments?.length ?? queuedDraft.attachments.length
+          }
+          onEdit={onEditQueuedDraft}
+          onDelete={onDeleteQueuedDraft}
+        />
+      )}
+
+      {!hasQuestionPanel && <div className="relative mx-auto max-w-[54.25rem]">
         {showFileDropdown && filteredFiles.length > 0 && (
-          <div className="absolute bottom-full left-0 right-0 z-50 mb-2 max-h-48 overflow-y-auto rounded-xl border border-border/50 bg-card/95 shadow-lg backdrop-blur-md">
+          <div
+            ref={fileDropdownRef}
+            className="absolute bottom-full left-0 right-0 z-50 mb-2 max-h-48 overflow-y-auto rounded-xl border border-border/50 bg-card/95 shadow-lg backdrop-blur-md"
+          >
             {filteredFiles.map((file, index) => (
               <div
                 key={file.path}
+                ref={index === selectedFileIndex ? selectedFileRef : undefined}
                 className={`cursor-pointer touch-manipulation border-b border-border/30 px-4 py-3 last:border-b-0 ${
                   index === selectedFileIndex
                     ? 'bg-primary/8 text-primary'
@@ -259,7 +339,10 @@ export default function ChatComposer({
         <PromptInput
           onSubmit={onSubmit as (event: FormEvent<HTMLFormElement>) => void}
           status={isLoading ? 'streaming' : 'ready'}
-          className={isTextareaExpanded ? 'chat-input-expanded' : ''}
+          className={[
+            isTextareaExpanded ? 'chat-input-expanded' : '',
+            hasActivityIndicator ? 'rounded-t-none' : '',
+          ].filter(Boolean).join(' ')}
           {...getRootProps()}
         >
           {isDragActive && (
@@ -273,22 +356,22 @@ export default function ChatComposer({
                     d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
                   />
                 </svg>
-                <p className="text-sm font-medium">Drop images here</p>
+                <p className="text-sm font-medium">Drop files here</p>
               </div>
             </div>
           )}
 
-          {attachedImages.length > 0 && (
+          {attachedFiles.length > 0 && (
             <PromptInputHeader>
               <div className="rounded-xl bg-muted/40 p-2">
                 <div className="flex flex-wrap gap-2">
-                  {attachedImages.map((file, index) => (
-                    <ImageAttachment
-                      key={index}
+                  {attachedFiles.map((file, index) => (
+                    <ComposerAttachment
+                      key={`${file.name}-${file.lastModified}-${index}`}
                       file={file}
-                      onRemove={() => onRemoveImage(index)}
-                      uploadProgress={uploadingImages.get(file.name)}
-                      error={imageErrors.get(file.name)}
+                      onRemove={() => onRemoveAttachment(index)}
+                      uploadProgress={uploadingFiles.get(file.name)}
+                      error={fileErrors.get(file.name)}
                     />
                   ))}
                 </div>
@@ -322,53 +405,18 @@ export default function ChatComposer({
         </PromptInputBody>
 
         <PromptInputFooter>
-          <PromptInputTools>
+          <PromptInputTools className="min-w-0">
             <PromptInputButton
-              tooltip={{ content: t('input.attachImages') }}
-              onClick={openImagePicker}
+              tooltip={{ content: t('input.attachFiles') }}
+              onClick={openAttachmentPicker}
+              aria-label={t('input.attachFiles')}
             >
-              <ImageIcon />
+              <PaperclipIcon />
             </PromptInputButton>
 
-            <button
-              type="button"
-              onClick={onModeSwitch}
-              className={`rounded-lg border p-2 text-xs font-medium transition-all duration-200 sm:px-2.5 sm:py-1 ${
-                permissionMode === 'default'
-                  ? 'border-border/60 bg-muted/50 text-muted-foreground hover:bg-muted'
-                  : permissionMode === 'acceptEdits'
-                    ? 'border-green-300/60 bg-green-50 text-green-700 hover:bg-green-100 dark:border-green-600/40 dark:bg-green-900/15 dark:text-green-300 dark:hover:bg-green-900/25'
-                    : permissionMode === 'auto'
-                      ? 'border-blue-300/60 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-600/40 dark:bg-blue-900/15 dark:text-blue-300 dark:hover:bg-blue-900/25'
-                      : permissionMode === 'bypassPermissions'
-                        ? 'border-orange-300/60 bg-orange-50 text-orange-700 hover:bg-orange-100 dark:border-orange-600/40 dark:bg-orange-900/15 dark:text-orange-300 dark:hover:bg-orange-900/25'
-                        : 'border-primary/20 bg-primary/5 text-primary hover:bg-primary/10'
-              }`}
-              title={t('input.clickToChangeMode')}
-            >
-              <div className="flex items-center gap-1.5">
-                <div
-                  className={`h-2.5 w-2.5 rounded-full sm:h-1.5 sm:w-1.5 ${
-                    permissionMode === 'default'
-                      ? 'bg-muted-foreground'
-                      : permissionMode === 'acceptEdits'
-                        ? 'bg-green-500'
-                        : permissionMode === 'auto'
-                          ? 'bg-blue-500'
-                          : permissionMode === 'bypassPermissions'
-                            ? 'bg-orange-500'
-                            : 'bg-primary'
-                  }`}
-                />
-                <span className="hidden whitespace-nowrap sm:inline">
-                  {permissionMode === 'default' && t('codex.modes.default')}
-                  {permissionMode === 'acceptEdits' && t('codex.modes.acceptEdits')}
-                  {permissionMode === 'auto' && t('codex.modes.auto')}
-                  {permissionMode === 'bypassPermissions' && t('codex.modes.bypassPermissions')}
-                  {permissionMode === 'plan' && t('codex.modes.plan')}
-                </span>
-              </div>
-            </button>
+            {onVoiceTranscript && voiceAvailable && (
+              <VoiceInputButton state={voiceState} onToggle={voiceToggle} errorMsg={voiceError} />
+            )}
 
             <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
 
@@ -399,27 +447,67 @@ export default function ChatComposer({
 
           </PromptInputTools>
 
-          <div className="flex items-center gap-2">
-            <PromptInputButton
-              tooltip={{ content: isRecording ? 'Stop recording' : isProcessing ? 'Processing...' : 'Voice input' }}
-              onClick={toggleRecording}
-              disabled={isProcessing}
-              className={isRecording ? 'text-red-500 animate-pulse' : isProcessing ? 'text-yellow-500' : ''}
-            >
-              {isProcessing ? <LoaderIcon className="animate-spin" /> : <MicIcon />}
-            </PromptInputButton>
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <div
               className={`hidden text-xs text-muted-foreground/50 transition-opacity duration-200 lg:block ${
-                input.trim() ? 'opacity-0' : 'opacity-100'
+                input.trim() && !canQueueDraft ? 'opacity-0' : 'opacity-100'
               }`}
             >
-              {sendByCtrlEnter ? t('input.hintText.ctrlEnter') : t('input.hintText.enter')}
+              {submitHint}
             </div>
-            <PromptInputSubmit
-              onClick={isLoading ? onAbortSession : undefined}
-              disabled={!isLoading && !input.trim()}
-              className="h-10 w-10 sm:h-10 sm:w-10"
+
+            <ComposerModelMenu
+              effort={effort}
+              effortOptions={availableEffortOptions}
+              onSelectEffort={onSelectEffort}
+              model={model}
+              modelOptions={availableModelOptions}
+              onSelectModel={onSelectModel}
+              modelsLoading={modelsLoading}
             />
+
+            <ComposerPermissionMenu
+              permissionMode={permissionMode}
+              permissionModes={availablePermissionModes}
+              onSelectPermissionMode={onSelectPermissionMode}
+              providerLabel={providerLabel}
+            />
+
+            <PromptInputSubmit
+              onClick={
+                canQueueDraft
+                  ? (e: MouseEvent<HTMLButtonElement>) => {
+                      e.preventDefault();
+                      onSubmit(e);
+                    }
+                  : isLoading
+                    ? onAbortSession
+                    : isRecording
+                      ? (e: MouseEvent<HTMLButtonElement>) => {
+                          e.preventDefault();
+                          voiceStop({ send: true });
+                        }
+                      : undefined
+              }
+              disabled={
+                isLoading
+                  ? false
+                  : isRecording
+                    ? false
+                    : isTranscribing
+                      ? true
+                      : !input.trim() && attachedFiles.length === 0
+              }
+              aria-label={submitAriaLabel}
+              title={submitAriaLabel}
+              className="h-10 w-10 sm:h-10 sm:w-10"
+            >
+              {isTranscribing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : canQueueDraft ? (
+                <ArrowUpIcon className="h-4 w-4" />
+              ) : undefined}
+            </PromptInputSubmit>
           </div>
         </PromptInputFooter>
       </PromptInput>

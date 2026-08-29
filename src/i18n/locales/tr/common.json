@@ -22,7 +22,9 @@
     "shell": "Shell",
     "files": "Dosyalar",
     "git": "Kaynak Kontrolü",
-    "tasks": "Görevler"
+    "tasks": "Görevler",
+    "browser": "Browser",
+    "computer": "Bilgisayar"
   },
   "status": {
     "loading": "Yükleniyor...",
@@ -126,6 +128,7 @@
       "download": "İndir",
       "newFile": "Yeni Dosya",
       "newFolder": "Yeni Klasör",
+      "upload": "Dosya Yükle",
       "refresh": "Yenile",
       "menuLabel": "Dosya bağlam menüsü",
       "loading": "Yükleniyor..."

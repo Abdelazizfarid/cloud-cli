@@ -1,5 +1,5 @@
-import type { ReactNode, RefObject } from 'react';
-import { Folder, Search } from 'lucide-react';
+import type { DragEvent, ReactNode, RefObject } from 'react';
+import { AlertTriangle, Folder, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { FileTreeNode, FileTreeViewMode } from '../types/types';
 import FileTreeEmptyState from './FileTreeEmptyState';
@@ -8,6 +8,7 @@ import FileTreeList from './FileTreeList';
 type FileTreeBodyProps = {
   files: FileTreeNode[];
   filteredFiles: FileTreeNode[];
+  error?: string | null;
   searchQuery: string;
   viewMode: FileTreeViewMode;
   expandedDirs: Set<string>;
@@ -21,7 +22,11 @@ type FileTreeBodyProps = {
   onNewFolder?: (path: string) => void;
   onCopyPath?: (item: FileTreeNode) => void;
   onDownload?: (item: FileTreeNode) => void;
+  onUpload?: (path: string) => void;
   onRefresh?: () => void;
+  // Drag-and-drop upload targeting
+  dropTarget?: string | null;
+  onItemDragOver?: (event: DragEvent<HTMLDivElement>, targetPath: string) => void;
   // Rename state for inline editing
   renamingItem?: FileTreeNode | null;
   renameValue?: string;
@@ -35,6 +40,7 @@ type FileTreeBodyProps = {
 export default function FileTreeBody({
   files,
   filteredFiles,
+  error,
   searchQuery,
   viewMode,
   expandedDirs,
@@ -48,7 +54,10 @@ export default function FileTreeBody({
   onNewFolder,
   onCopyPath,
   onDownload,
+  onUpload,
   onRefresh,
+  dropTarget,
+  onItemDragOver,
   renamingItem,
   renameValue,
   setRenameValue,
@@ -61,7 +70,13 @@ export default function FileTreeBody({
 
   return (
     <>
-      {files.length === 0 ? (
+      {error ? (
+        <FileTreeEmptyState
+          icon={AlertTriangle}
+          title={t('fileTree.loadFailed')}
+          description={error}
+        />
+      ) : files.length === 0 ? (
         <FileTreeEmptyState
           icon={Folder}
           title={t('fileTree.noFilesFound')}
@@ -88,7 +103,10 @@ export default function FileTreeBody({
           onNewFolder={onNewFolder}
           onCopyPath={onCopyPath}
           onDownload={onDownload}
+          onUpload={onUpload}
           onRefresh={onRefresh}
+          dropTarget={dropTarget}
+          onItemDragOver={onItemDragOver}
           renamingItem={renamingItem}
           renameValue={renameValue}
           setRenameValue={setRenameValue}

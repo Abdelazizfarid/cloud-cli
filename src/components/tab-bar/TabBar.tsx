@@ -1,4 +1,5 @@
 import { Columns2, Home, Plus, X } from 'lucide-react';
+
 import type { AppSessionTab } from '../../hooks/useTabsState';
 
 interface TabBarProps {
@@ -15,17 +16,17 @@ interface TabBarProps {
 
 export default function TabBar({ tabs, activeTabId, showingDashboard, splitMode, onSwitch, onClose, onAdd, onHome, onToggleSplit }: TabBarProps) {
   return (
-    <div className="flex items-center gap-0 border-b border-border/50 bg-background/80 backdrop-blur-sm px-1 h-9 overflow-x-auto shrink-0">
+    <div className="flex h-9 shrink-0 items-center gap-0 overflow-x-auto border-b border-border/50 bg-background/80 px-1 backdrop-blur-sm">
       <button
         onClick={onHome}
-        className={`flex items-center justify-center w-8 h-full shrink-0 transition-colors ${
+        className={`flex h-full w-8 shrink-0 items-center justify-center transition-colors ${
           showingDashboard
-            ? 'text-primary border-b-2 border-primary bg-muted/40'
-            : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+            ? 'border-b-2 border-primary bg-muted/40 text-primary'
+            : 'text-muted-foreground hover:bg-muted/30 hover:text-foreground'
         }`}
         aria-label="Dashboard"
       >
-        <Home className="w-3.5 h-3.5" />
+        <Home className="h-3.5 w-3.5" />
       </button>
       {tabs.map((tab) => {
         const isActive = tab.id === activeTabId && !showingDashboard && !splitMode;
@@ -34,11 +35,11 @@ export default function TabBar({ tabs, activeTabId, showingDashboard, splitMode,
             key={tab.id}
             onClick={() => onSwitch(tab.id)}
             className={`
-              group relative flex items-center gap-1.5 px-3 h-full cursor-pointer
-              text-xs font-medium select-none transition-colors duration-100 max-w-[180px]
+              group relative flex h-full max-w-[180px] cursor-pointer select-none items-center
+              gap-1.5 px-3 text-xs font-medium transition-colors duration-100
               ${isActive
-                ? 'text-foreground border-b-2 border-primary bg-muted/40'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+                ? 'border-b-2 border-primary bg-muted/40 text-foreground'
+                : 'text-muted-foreground hover:bg-muted/30 hover:text-foreground'
               }
             `}
           >
@@ -46,10 +47,10 @@ export default function TabBar({ tabs, activeTabId, showingDashboard, splitMode,
             {tabs.length > 1 && (
               <button
                 onClick={(e) => { e.stopPropagation(); onClose(tab.id); }}
-                className="ml-auto opacity-0 group-hover:opacity-100 hover:bg-destructive/20 rounded p-0.5 transition-opacity"
+                className="ml-auto rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/20 group-hover:opacity-100"
                 aria-label="Close tab"
               >
-                <X className="w-3 h-3" />
+                <X className="h-3 w-3" />
               </button>
             )}
           </div>
@@ -57,22 +58,22 @@ export default function TabBar({ tabs, activeTabId, showingDashboard, splitMode,
       })}
       <button
         onClick={onAdd}
-        className="flex items-center justify-center w-7 h-7 ml-0.5 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+        className="ml-0.5 flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
         aria-label="New tab"
       >
-        <Plus className="w-3.5 h-3.5" />
+        <Plus className="h-3.5 w-3.5" />
       </button>
       {tabs.length > 1 && (
         <button
           onClick={onToggleSplit}
-          className={`flex items-center justify-center w-7 h-7 ml-auto rounded transition-colors ${
+          className={`ml-auto flex h-7 w-7 items-center justify-center rounded transition-colors ${
             splitMode
-              ? 'text-primary bg-primary/10'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+              ? 'bg-primary/10 text-primary'
+              : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
           }`}
           aria-label="Split view"
         >
-          <Columns2 className="w-3.5 h-3.5" />
+          <Columns2 className="h-3.5 w-3.5" />
         </button>
       )}
     </div>

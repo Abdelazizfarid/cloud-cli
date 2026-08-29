@@ -1,8 +1,13 @@
-import { Activity, Archive, Bot, Folder, FolderPlus, Plus, RefreshCw, Search, Settings, X, PanelLeftClose } from 'lucide-react';
+import { Activity, Archive, Bot, Folder, FolderPlus, MessageSquare, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
 import type { TFunction } from 'i18next';
+
 import { Button, Input, Tooltip } from '../../../../shared/view/ui';
+import { CLOUDCLI_WORDMARK_FONT_FAMILY } from '../../../../shared/constants';
+import { IS_PLATFORM } from '../../../../shared/utils';
 import { cn } from '../../../../lib/utils';
 import type { SidebarSearchMode } from '../../types/types';
+
+import GitHubStarBadge from './GitHubStarBadge';
 
 const MOD_KEY =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
@@ -12,6 +17,7 @@ type SidebarHeaderProps = {
   isMobile: boolean;
   isLoading: boolean;
   projectsCount: number;
+  runningSessionsCount: number;
   archivedSessionsCount: number;
   isArchivedSessionsLoading: boolean;
   searchFilter: string;
@@ -22,9 +28,8 @@ type SidebarHeaderProps = {
   onRefresh: () => void;
   isRefreshing: boolean;
   onCreateProject: () => void;
-  onOpenAgentControlPlane: () => void;
+  onOpenAgentControlPlane?: () => void;
   onCollapseSidebar: () => void;
-  onShowSettings: () => void;
   t: TFunction;
 };
 
@@ -33,6 +38,7 @@ export default function SidebarHeader({
   isMobile,
   isLoading,
   projectsCount,
+  runningSessionsCount,
   archivedSessionsCount,
   isArchivedSessionsLoading,
   searchFilter,
@@ -45,15 +51,33 @@ export default function SidebarHeader({
   onCreateProject,
   onOpenAgentControlPlane,
   onCollapseSidebar,
-  onShowSettings,
   t,
 }: SidebarHeaderProps) {
-  const showSearchTools = (projectsCount > 0 || archivedSessionsCount > 0 || isArchivedSessionsLoading) && !isLoading;
+  const showSearchTools = (projectsCount > 0 || runningSessionsCount > 0 || archivedSessionsCount > 0 || isArchivedSessionsLoading) && !isLoading;
   const searchPlaceholder = searchMode === 'conversations'
     ? t('search.conversationsPlaceholder')
     : searchMode === 'archived'
       ? t('search.archivedPlaceholder', 'Search archived sessions...')
-      : t('projects.searchPlaceholder');
+      : searchMode === 'running'
+        ? t('search.runningPlaceholder', 'Search running sessions...')
+        : t('projects.searchPlaceholder');
+  const runningBadgeText = runningSessionsCount > 99 ? '99+' : String(runningSessionsCount);
+
+  const LogoBlock = () => (
+    <div className="flex min-w-0 items-center gap-2.5">
+      <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-primary/90 shadow-sm">
+        <svg className="h-3.5 w-3.5 text-primary-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        </svg>
+      </div>
+      <h1
+        className="truncate text-sm font-bold tracking-tight text-foreground"
+        style={{ fontFamily: CLOUDCLI_WORDMARK_FONT_FAMILY }}
+      >
+        {t('app.title')}
+      </h1>
+    </div>
+  );
 
   return (
     <div className="flex-shrink-0">
@@ -63,6 +87,18 @@ export default function SidebarHeader({
         style={{}}
       >
         <div className="flex items-center justify-between gap-2">
+          {IS_PLATFORM ? (
+            <a
+              href="https://cloudcli.ai/dashboard"
+              className="flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-80"
+              title={t('tooltips.viewEnvironments')}
+            >
+              <LogoBlock />
+            </a>
+          ) : (
+            <LogoBlock />
+          )}
+
           <div className="flex flex-shrink-0 items-center gap-0.5">
             <Button
               variant="ghost"
@@ -87,24 +123,17 @@ export default function SidebarHeader({
             >
               <Plus className="h-3.5 w-3.5" />
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 rounded-lg p-0 text-muted-foreground hover:bg-accent/80 hover:text-foreground"
-              onClick={onOpenAgentControlPlane}
-              title="Agent Control Plane"
-            >
-              <Bot className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 rounded-lg p-0 text-muted-foreground hover:bg-accent/80 hover:text-foreground"
-              onClick={onShowSettings}
-              title={t('actions.settings')}
-            >
-              <Settings className="h-3.5 w-3.5" />
-            </Button>
+            {onOpenAgentControlPlane && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 rounded-lg p-0 text-muted-foreground hover:bg-accent/80 hover:text-foreground"
+                onClick={onOpenAgentControlPlane}
+                title="Agent Control Plane"
+              >
+                <Bot className="h-3.5 w-3.5" />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"
@@ -117,6 +146,8 @@ export default function SidebarHeader({
           </div>
         </div>
 
+        <GitHubStarBadge />
+
         {/* Search bar */}
         {showSearchTools && (
           <div className="mt-2.5 space-y-2">
@@ -126,7 +157,7 @@ export default function SidebarHeader({
                 onClick={() => onSearchModeChange('projects')}
                 aria-pressed={searchMode === 'projects'}
                 className={cn(
-                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-all",
+                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
                   searchMode === 'projects'
                     ? "bg-background shadow-sm text-foreground"
                     : "text-muted-foreground hover:text-foreground"
@@ -139,15 +170,38 @@ export default function SidebarHeader({
                 onClick={() => onSearchModeChange('conversations')}
                 aria-pressed={searchMode === 'conversations'}
                 className={cn(
-                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-all",
+                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
                   searchMode === 'conversations'
                     ? "bg-background shadow-sm text-foreground"
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                <Activity className="h-3 w-3" />
+                <MessageSquare className="h-3 w-3" />
                 {t('search.modeConversations')}
               </button>
+              <Tooltip content={t('search.runningTooltip', 'Running sessions')} position="top">
+                <button
+                  onClick={() => onSearchModeChange('running')}
+                  aria-pressed={searchMode === 'running'}
+                  aria-label={t('search.runningTooltip', 'Running sessions')}
+                  title={t('search.runningTooltip', 'Running sessions')}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
+                    searchMode === 'running'
+                      ? "bg-background shadow-sm text-foreground ring-1 ring-emerald-500/15"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <span className="relative flex h-3 w-3 items-center justify-center">
+                    <Activity className={cn("h-3 w-3", runningSessionsCount > 0 && "text-emerald-500")} />
+                    {runningSessionsCount > 0 && (
+                      <span className="absolute -right-2.5 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[8px] font-semibold leading-none text-white shadow-sm ring-1 ring-background">
+                        {runningBadgeText}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              </Tooltip>
               <Tooltip content={t('search.archiveOnlyTooltip', 'Archive only')} position="top">
                 <button
                   onClick={() => onSearchModeChange('archived')}
@@ -155,7 +209,7 @@ export default function SidebarHeader({
                   aria-label={t('search.archiveOnlyTooltip', 'Archive only')}
                   title={t('search.archiveOnlyTooltip', 'Archive only')}
                   className={cn(
-                    "flex items-center justify-center rounded-md px-2.5 py-1.5 text-xs font-medium transition-all",
+                    "flex items-center justify-center rounded-md px-2.5 py-1.5 text-xs font-normal transition-all",
                     searchMode === 'archived'
                       ? "bg-background shadow-sm text-foreground"
                       : "text-muted-foreground hover:text-foreground"
@@ -206,6 +260,18 @@ export default function SidebarHeader({
         style={isPWA && isMobile ? { paddingTop: '16px' } : {}}
       >
         <div className="flex items-center justify-between">
+          {IS_PLATFORM ? (
+            <a
+              href="https://cloudcli.ai/dashboard"
+              className="flex min-w-0 items-center gap-2.5 transition-opacity active:opacity-70"
+              title={t('tooltips.viewEnvironments')}
+            >
+              <LogoBlock />
+            </a>
+          ) : (
+            <LogoBlock />
+          )}
+
           <div className="flex flex-shrink-0 gap-1.5">
             <button
               className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/50 transition-all active:scale-95"
@@ -231,7 +297,7 @@ export default function SidebarHeader({
                 onClick={() => onSearchModeChange('projects')}
                 aria-pressed={searchMode === 'projects'}
                 className={cn(
-                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-all",
+                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
                   searchMode === 'projects'
                     ? "bg-background shadow-sm text-foreground"
                     : "text-muted-foreground hover:text-foreground"
@@ -244,15 +310,39 @@ export default function SidebarHeader({
                 onClick={() => onSearchModeChange('conversations')}
                 aria-pressed={searchMode === 'conversations'}
                 className={cn(
-                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-all",
+                  "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
                   searchMode === 'conversations'
                     ? "bg-background shadow-sm text-foreground"
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                <Activity className="h-3 w-3" />
+                <MessageSquare className="h-3 w-3" />
                 {t('search.modeConversations')}
               </button>
+              <Tooltip content={t('search.runningTooltip', 'Running sessions')} position="top">
+                <button
+                  onClick={() => onSearchModeChange('running')}
+                  aria-pressed={searchMode === 'running'}
+                  aria-label={t('search.runningTooltip', 'Running sessions')}
+                  title={t('search.runningTooltip', 'Running sessions')}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
+                    searchMode === 'running'
+                      ? "bg-background shadow-sm text-foreground ring-1 ring-emerald-500/15"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <span className="relative flex h-3 w-3 items-center justify-center">
+                    <Activity className={cn("h-3 w-3", runningSessionsCount > 0 && "text-emerald-500")} />
+                    {runningSessionsCount > 0 && (
+                      <span className="absolute -right-2.5 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[8px] font-semibold leading-none text-white shadow-sm ring-1 ring-background">
+                        {runningBadgeText}
+                      </span>
+                    )}
+                  </span>
+                  <span className="sr-only">{t('search.modeRunning', 'Running')}</span>
+                </button>
+              </Tooltip>
               <Tooltip content={t('search.archiveOnlyTooltip', 'Archive only')} position="top">
                 <button
                   onClick={() => onSearchModeChange('archived')}
@@ -260,7 +350,7 @@ export default function SidebarHeader({
                   aria-label={t('search.archiveOnlyTooltip', 'Archive only')}
                   title={t('search.archiveOnlyTooltip', 'Archive only')}
                   className={cn(
-                    "flex items-center justify-center rounded-md px-2.5 py-1.5 text-xs font-medium transition-all",
+                    "flex items-center justify-center rounded-md px-2.5 py-1.5 text-xs font-normal transition-all",
                     searchMode === 'archived'
                       ? "bg-background shadow-sm text-foreground"
                       : "text-muted-foreground hover:text-foreground"

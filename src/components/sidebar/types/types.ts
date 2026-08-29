@@ -1,7 +1,8 @@
 import type { LoadingProgress, Project, ProjectSession, LLMProvider } from '../../../types/app';
+import type { SessionActivityMap } from '../../../hooks/useSessionProtection';
 
 export type ProjectSortOrder = 'name' | 'date';
-export type SidebarSearchMode = 'projects' | 'conversations' | 'archived';
+export type SidebarSearchMode = 'projects' | 'conversations' | 'running' | 'archived';
 export type ArchivedProjectListItem = Project & { isArchived: true };
 
 export type SessionWithProvider = ProjectSession & {
@@ -21,6 +22,11 @@ export type ArchivedSessionListItem = {
   isProjectArchived: boolean;
 };
 
+export type RecentConversationListItem = Pick<
+  ArchivedSessionListItem,
+  'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity'
+>;
+
 export type DeleteProjectConfirmation = {
   project: Project;
   sessionCount: number;
@@ -37,9 +43,12 @@ export type SessionDeleteConfirmation = {
 };
 
 export type SidebarProps = {
+  onOpenAgentControlPlane?: () => void;
   projects: Project[];
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
+  activeSessions: SessionActivityMap;
+  attentionSessionIds: ReadonlySet<string>;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession) => void;
   onNewSession: (project: Project) => void;
@@ -51,7 +60,6 @@ export type SidebarProps = {
   isLoading: boolean;
   loadingProgress: LoadingProgress | null;
   onRefresh: () => Promise<void> | void;
-  onOpenAgentControlPlane?: () => void;
   onShowSettings: () => void;
   showSettings: boolean;
   settingsInitialTab: string;
@@ -60,10 +68,6 @@ export type SidebarProps = {
 };
 
 export type SessionViewModel = {
-  isCursorSession: boolean;
-  isCodexSession: boolean;
-  isGeminiSession: boolean;
-  isOpenCodeSession: boolean;
   isActive: boolean;
   sessionName: string;
   sessionTime: string;

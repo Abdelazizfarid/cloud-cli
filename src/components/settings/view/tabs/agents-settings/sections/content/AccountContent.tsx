@@ -1,7 +1,7 @@
 import { LogIn } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge, Button } from '../../../../../../../shared/view/ui';
-import SessionProviderLogo from '../../../../../../llm-logo-provider/SessionProviderLogo';
+import LLMProviderLogo from '../../../../../../llm-provider-logo/LLMProviderLogo';
 import type { AgentProvider, AuthStatus } from '../../../../../types/types';
 
 type AccountContentProps = {
@@ -45,15 +45,6 @@ const agentConfig: Record<AgentProvider, AgentVisualConfig> = {
     subtextClass: 'text-gray-700 dark:text-gray-300',
     buttonClass: 'bg-gray-800 hover:bg-gray-900 active:bg-gray-950 dark:bg-gray-700 dark:hover:bg-gray-600 dark:active:bg-gray-500',
   },
-  gemini: {
-    name: 'Gemini',
-    description: 'Google Gemini AI assistant',
-    bgClass: 'bg-indigo-50 dark:bg-indigo-900/20',
-    borderClass: 'border-indigo-200 dark:border-indigo-800',
-    textClass: 'text-indigo-900 dark:text-indigo-100',
-    subtextClass: 'text-indigo-700 dark:text-indigo-300',
-    buttonClass: 'bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800',
-  },
   opencode: {
     name: 'OpenCode',
     description: 'OpenCode CLI assistant',
@@ -72,7 +63,7 @@ export default function AccountContent({ agent, authStatus, onLogin }: AccountCo
   return (
     <div className="space-y-6">
       <div className="mb-4 flex items-center gap-3">
-        <SessionProviderLogo provider={agent} className="h-6 w-6" />
+        <LLMProviderLogo provider={agent} className="h-6 w-6" />
         <div>
           <h3 className="text-lg font-medium text-foreground">{config.name}</h3>
           <p className="text-sm text-muted-foreground">

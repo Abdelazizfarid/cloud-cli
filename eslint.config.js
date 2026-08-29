@@ -161,16 +161,13 @@ export default tseslint.config(
             "server/shared/utils.{js,ts}",
             "server/shared/frontmatter.ts",
             "server/shared/claude-cli-path.ts",
+            "server/shared/image-attachments.ts",
           ], // classify shared utility files so modules can depend on them explicitly
           mode: "file",
         },
         {
           type: "backend-legacy-runtime", // legacy runtime persistence modules used while providers migrate into server/modules
-          pattern: [
-            "server/projects.js",
-            "server/sessionManager.js",
-            "server/utils/runtime-paths.js",
-          ], // provider history loading still resolves session data through these legacy runtime files
+          pattern: ["server/projects.js"], // provider history loading still resolves session data through this legacy runtime file
           mode: "file",
         },
         {

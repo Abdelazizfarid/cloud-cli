@@ -1,4 +1,7 @@
-import { Code2, Download, Eye, Maximize2, Minimize2, Save, Settings as SettingsIcon, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Check, Code2, Copy, Download, Eye, Maximize2, Minimize2, Save, Settings as SettingsIcon, X } from 'lucide-react';
+
+import { copyTextToClipboard } from '../../../../utils/clipboard';
 import type { CodeEditorFile } from '../../types/types';
 
 type CodeEditorHeaderProps = {
@@ -6,10 +9,12 @@ type CodeEditorHeaderProps = {
   isSidebar: boolean;
   isFullscreen: boolean;
   isMarkdownFile: boolean;
+  isHtmlPreviewFile: boolean;
   markdownPreview: boolean;
   saving: boolean;
   saveSuccess: boolean;
   onToggleMarkdownPreview: () => void;
+  onOpenHtmlPreview: () => void;
   onOpenSettings: () => void;
   onDownload: () => void;
   onSave: () => void;
@@ -17,8 +22,11 @@ type CodeEditorHeaderProps = {
   onClose: () => void;
   labels: {
     showingChanges: string;
+    copyPath: string;
+    pathCopied: string;
     editMarkdown: string;
     previewMarkdown: string;
+    previewHtml: string;
     settings: string;
     download: string;
     save: string;
@@ -35,10 +43,12 @@ export default function CodeEditorHeader({
   isSidebar,
   isFullscreen,
   isMarkdownFile,
+  isHtmlPreviewFile,
   markdownPreview,
   saving,
   saveSuccess,
   onToggleMarkdownPreview,
+  onOpenHtmlPreview,
   onOpenSettings,
   onDownload,
   onSave,
@@ -46,7 +56,27 @@ export default function CodeEditorHeader({
   onClose,
   labels,
 }: CodeEditorHeaderProps) {
+  const [copiedPath, setCopiedPath] = useState<string | null>(null);
+  const copyResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTitle = saveSuccess ? labels.saved : saving ? labels.saving : labels.save;
+  const pathCopied = copiedPath === file.path;
+
+  useEffect(() => () => {
+    if (copyResetTimeoutRef.current) {
+      clearTimeout(copyResetTimeoutRef.current);
+    }
+  }, []);
+
+  const handleCopyPath = async () => {
+    const didCopy = await copyTextToClipboard(file.path);
+    if (!didCopy) return;
+
+    setCopiedPath(file.path);
+    if (copyResetTimeoutRef.current) {
+      clearTimeout(copyResetTimeoutRef.current);
+    }
+    copyResetTimeoutRef.current = setTimeout(() => setCopiedPath(null), 2000);
+  };
 
   return (
     <div className="flex min-w-0 flex-shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-1.5">
@@ -61,7 +91,22 @@ export default function CodeEditorHeader({
               </span>
             )}
           </div>
-          <p className="truncate text-xs text-gray-500 dark:text-gray-400">{file.path}</p>
+          <div className="flex min-w-0 items-center gap-1">
+            <p className="truncate text-xs text-gray-500 dark:text-gray-400" title={file.path}>{file.path}</p>
+            <button
+              type="button"
+              onClick={handleCopyPath}
+              className={`flex shrink-0 items-center justify-center rounded p-0.5 transition-colors ${
+                pathCopied
+                  ? 'text-green-600 dark:text-green-400'
+                  : 'text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-500 dark:hover:bg-gray-800 dark:hover:text-gray-200'
+              }`}
+              title={pathCopied ? labels.pathCopied : labels.copyPath}
+              aria-label={pathCopied ? labels.pathCopied : labels.copyPath}
+            >
+              {pathCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -79,6 +124,17 @@ export default function CodeEditorHeader({
             title={markdownPreview ? labels.editMarkdown : labels.previewMarkdown}
           >
             {markdownPreview ? <Code2 className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        )}
+
+        {isHtmlPreviewFile && (
+          <button
+            type="button"
+            onClick={onOpenHtmlPreview}
+            className="flex items-center justify-center rounded-md p-1.5 text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
+            title={labels.previewHtml}
+          >
+            <Eye className="h-4 w-4" />
           </button>
         )}
 

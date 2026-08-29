@@ -1,12 +1,25 @@
 import type { Project, ProjectSession, LLMProvider } from '../../../types/app';
+import type {
+  MarkSessionIdle,
+  MarkSessionProcessing,
+  SessionActivityMap,
+} from '../../../hooks/useSessionProtection';
 
 export type Provider = LLMProvider;
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'auto' | 'bypassPermissions' | 'plan';
 
-export interface ChatImage {
-  data: string;
-  name: string;
+export interface ChatAttachment {
+  /** Absolute path inside the server-managed chat attachment store. */
+  path?: string;
+  name?: string;
+  mimeType?: string;
+  size?: number;
+}
+
+export interface ChatImage extends ChatAttachment {
+  /** Inline data URL (Claude history stores image attachments as base64). */
+  data?: string;
 }
 
 export interface ToolResult {
@@ -31,6 +44,7 @@ export interface ChatMessage {
   displayText?: string;
   timestamp: string | number | Date;
   images?: ChatImage[];
+  files?: ChatAttachment[];
   reasoning?: string;
   isThinking?: boolean;
   isStreaming?: boolean;
@@ -102,25 +116,28 @@ export type SessionNavigationOptions = {
   replace?: boolean;
 };
 
+export type SessionEstablishedContext = {
+  provider: LLMProvider;
+  project: Project;
+  summary?: string | null;
+};
+
 export interface ChatInterfaceProps {
+  isActive: boolean;
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
   ws: WebSocket | null;
   sendMessage: (message: unknown) => void;
-  latestMessage: any;
   onFileOpen?: (filePath: string, diffInfo?: any) => void;
   onInputFocusChange?: (focused: boolean) => void;
-  onSessionActive?: (sessionId?: string | null) => void;
-  onSessionInactive?: (sessionId?: string | null) => void;
-  onSessionProcessing?: (sessionId?: string | null) => void;
-  onSessionNotProcessing?: (sessionId?: string | null) => void;
-  processingSessions?: Map<string, number>;
+  onSessionProcessing?: MarkSessionProcessing;
+  onSessionIdle?: MarkSessionIdle;
+  processingSessions?: SessionActivityMap;
   onNavigateToSession?: (targetSessionId: string, options?: SessionNavigationOptions) => void;
+  onSessionEstablished?: (sessionId: string, context: SessionEstablishedContext) => void;
   onShowSettings?: () => void;
-  autoExpandTools?: boolean;
   showRawParameters?: boolean;
   showThinking?: boolean;
-  autoScrollToBottom?: boolean;
   sendByCtrlEnter?: boolean;
   externalMessageUpdate?: number;
   newSessionTrigger?: number;

@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import type { TFunction } from 'i18next';
 
 import type { LoadingProgress, Project, ProjectSession, LLMProvider } from '../../../../types/app';
+import type { SessionActivityMap } from '../../../../hooks/useSessionProtection';
+import { getPageTitle } from '../../../../utils/pageTitle';
 import type { MCPServerStatus, SessionWithProvider } from '../../types/types';
 
 import SidebarProjectItem from './SidebarProjectItem';
@@ -27,6 +29,9 @@ export type SidebarProjectListProps = {
   getProjectSessions: (project: Project) => SessionWithProvider[];
   onLoadMoreSessions: (projectId: string) => void;
   loadingMoreProjects: Set<string>;
+  activeSessions: SessionActivityMap;
+  attentionSessionIds: ReadonlySet<string>;
+  forceExpanded?: boolean;
   isProjectStarred: (projectName: string) => boolean;
   onEditingNameChange: (value: string) => void;
   onToggleProject: (projectName: string) => void;
@@ -71,6 +76,9 @@ export default function SidebarProjectList({
   getProjectSessions,
   onLoadMoreSessions,
   loadingMoreProjects,
+  activeSessions,
+  attentionSessionIds,
+  forceExpanded = false,
   isProjectStarred,
   onEditingNameChange,
   onToggleProject,
@@ -89,6 +97,7 @@ export default function SidebarProjectList({
   onSaveEditingSession,
   t,
 }: SidebarProjectListProps) {
+  const pageTitle = getPageTitle(selectedProject, selectedSession);
   const state = (
     <SidebarProjectsState
       isLoading={isLoading}
@@ -100,13 +109,8 @@ export default function SidebarProjectList({
   );
 
   useEffect(() => {
-    let baseTitle = 'CloudCLI UI';
-    const displayName = selectedProject?.displayName?.trim();
-    if (displayName) {
-      baseTitle = `${displayName} - ${baseTitle}`;
-    }
-    document.title = baseTitle;
-  }, [selectedProject]);
+    document.title = pageTitle;
+  }, [pageTitle]);
 
   const showProjects = !isLoading && projects.length > 0 && filteredProjects.length > 0;
 
@@ -122,7 +126,7 @@ export default function SidebarProjectList({
               project={project}
               selectedProject={selectedProject}
               selectedSession={selectedSession}
-              isExpanded={expandedProjects.has(project.projectId)}
+              isExpanded={forceExpanded || expandedProjects.has(project.projectId)}
               isDeleting={deletingProjects.has(project.projectId)}
               isStarred={isProjectStarred(project.projectId)}
               editingProject={editingProject}
@@ -146,6 +150,8 @@ export default function SidebarProjectList({
               onSessionSelect={onSessionSelect}
               onDeleteSession={onDeleteSession}
               onLoadMoreSessions={onLoadMoreSessions}
+              activeSessions={activeSessions}
+              attentionSessionIds={attentionSessionIds}
               onNewSession={onNewSession}
               onEditingSessionNameChange={onEditingSessionNameChange}
               onStartEditingSession={onStartEditingSession}

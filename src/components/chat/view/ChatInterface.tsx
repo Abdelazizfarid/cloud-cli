@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ArrowDownIcon } from 'lucide-react';
 
 import { useTasksSettings } from '../../../contexts/TasksSettingsContext';
+import { useWebSocket } from '../../../contexts/WebSocketContext';
 import PermissionContext from '../../../contexts/PermissionContext';
-import { QuickSettingsPanel } from '../../quick-settings-panel';
-import type { ChatInterfaceProps, Provider  } from '../types/types';
-import type { LLMProvider } from '../../../types/app';
+import type { ChatInterfaceProps, PermissionMode, Provider  } from '../types/types';
 import { useChatProviderState } from '../hooks/useChatProviderState';
 import { useChatSessionState } from '../hooks/useChatSessionState';
 import { useChatRealtimeHandlers } from '../hooks/useChatRealtimeHandlers';
@@ -16,42 +16,41 @@ import ChatMessagesPane from './subcomponents/ChatMessagesPane';
 import ChatComposer from './subcomponents/ChatComposer';
 import CommandResultModal from './subcomponents/CommandResultModal';
 
-
-type PendingViewSession = {
-  startedAt: number;
-};
-
 function ChatInterface({
+  isActive,
   selectedProject,
   selectedSession,
   ws,
   sendMessage,
-  latestMessage,
   onFileOpen,
   onInputFocusChange,
-  onSessionActive,
-  onSessionInactive,
   onSessionProcessing,
-  onSessionNotProcessing,
+  onSessionIdle,
   processingSessions,
   onNavigateToSession,
+  onSessionEstablished,
   onShowSettings,
-  autoExpandTools,
   showRawParameters,
   showThinking,
-  autoScrollToBottom,
   sendByCtrlEnter,
   externalMessageUpdate,
   newSessionTrigger,
   onShowAllTasks,
 }: ChatInterfaceProps) {
   const { tasksEnabled, isTaskMasterInstalled } = useTasksSettings();
+  const { subscribe } = useWebSocket();
   const { t } = useTranslation('chat');
 
   const sessionStore = useSessionStore();
   const streamTimerRef = useRef<number | null>(null);
   const accumulatedStreamRef = useRef('');
-  const pendingViewSessionRef = useRef<PendingViewSession | null>(null);
+  // When each session's `chat.subscribe` was last sent; idle acks older than
+  // a later local request are discarded as stale.
+  const statusCheckSentAtRef = useRef(new Map<string, number>());
+  // Highest live `seq` observed per session. Written by the realtime handler
+  // on every sequenced frame, read whenever a `chat.subscribe` is sent so the
+  // server replays only the events this client actually missed.
+  const lastSeqRef = useRef(new Map<string, number>());
 
   const resetStreamingState = useCallback(() => {
     if (streamTimerRef.current) {
@@ -70,20 +69,24 @@ function ChatInterface({
     setClaudeModel,
     codexModel,
     setCodexModel,
-    geminiModel,
-    setGeminiModel,
+    currentProviderEffort,
+    currentProviderEffortOptions,
+    currentProviderModel,
+    currentProviderModelOptions,
     opencodeModel,
     setOpenCodeModel,
     permissionMode,
     pendingPermissionRequests,
     setPendingPermissionRequests,
+    availablePermissionModes,
+    selectPermissionMode,
     cyclePermissionMode,
     providerModelCatalog,
-    providerModelCacheCatalog,
     providerModelsLoading,
-    providerModelsRefreshing,
-    hardRefreshProviderModels,
+    providerModelActions,
     selectProviderModel,
+    selectProviderEffort,
+    resolvePermissionModeForProvider,
   } = useChatProviderState({
     selectedSession,
     selectedProject,
@@ -92,18 +95,15 @@ function ChatInterface({
   const {
     chatMessages,
     addMessage,
-    isLoading,
-    setIsLoading,
-    processingStartTime,
-    setProcessingStartTime,
+    sessionActivity,
+    isProcessing,
+    canAbortSession,
     currentSessionId,
     setCurrentSessionId,
     isLoadingSessionMessages,
     isLoadingMoreMessages,
     hasMoreMessages,
     totalMessages,
-    canAbortSession,
-    setCanAbortSession,
     isUserScrolledUp,
     setIsUserScrolledUp,
     tokenBudget,
@@ -116,26 +116,36 @@ function ChatInterface({
     isLoadingAllMessages,
     loadAllJustFinished,
     showLoadAllOverlay,
-    claudeStatus,
-    setClaudeStatus,
     createDiff,
     scrollContainerRef,
     scrollToBottom,
     scrollToBottomAndReset,
     handleScroll,
+    requestLatestMessages,
   } = useChatSessionState({
+    isActive,
     selectedProject,
     selectedSession,
     ws,
     sendMessage,
-    autoScrollToBottom,
     externalMessageUpdate,
     newSessionTrigger,
     processingSessions,
+    onSessionIdle,
     resetStreamingState,
-    pendingViewSessionRef,
+    statusCheckSentAtRef,
+    lastSeqRef,
     sessionStore,
   });
+
+  // Brand-new conversation: the composer allocated a stable session id via
+  // the session gateway before the first send. Record it locally and put it
+  // in the URL — this id never changes again, so there is no later handoff.
+  const handleSessionEstablished = useCallback<NonNullable<ChatInterfaceProps['onSessionEstablished']>>((sessionId, context) => {
+    setCurrentSessionId(sessionId);
+    onSessionEstablished?.(sessionId, context);
+    onNavigateToSession?.(sessionId);
+  }, [setCurrentSessionId, onSessionEstablished, onNavigateToSession]);
 
   const {
     input,
@@ -157,15 +167,19 @@ function ChatInterface({
     selectedFileIndex,
     renderInputWithMentions,
     selectFile,
-    attachedImages,
-    setAttachedImages,
-    uploadingImages,
-    imageErrors,
+    attachedFiles,
+    setAttachedFiles,
+    uploadingFiles,
+    fileErrors,
     getRootProps,
     getInputProps,
     isDragActive,
-    openImagePicker,
+    openAttachmentPicker,
     handleSubmit,
+    queuedDraft,
+    editQueuedDraft,
+    deleteQueuedDraft,
+    handleVoiceTranscript,
     handleInputChange,
     handleKeyDown,
     handlePaste,
@@ -177,7 +191,7 @@ function ChatInterface({
     handlePermissionDecision,
     handleGrantToolPermission,
     handleInputFocusChange,
-    isInputFocused: _isInputFocused,
+    isInputFocused,
     commandModalPayload,
     closeCommandModal,
     showCostModal,
@@ -188,72 +202,65 @@ function ChatInterface({
     provider,
     permissionMode,
     cyclePermissionMode,
-    cursorModel,
-    claudeModel,
-    codexModel,
-    geminiModel,
-    opencodeModel,
-    isLoading,
+    currentProviderModel,
+    currentProviderEffort,
+    isLoading: isProcessing,
+    processingSessions,
     canAbortSession,
     tokenBudget,
     sendMessage,
     sendByCtrlEnter,
-    onSessionActive,
     onSessionProcessing,
+    onSessionEstablished: handleSessionEstablished,
     onInputFocusChange,
     onFileOpen,
     onShowSettings,
-    pendingViewSessionRef,
     scrollToBottom,
     addMessage,
-    setIsLoading,
-    setProcessingStartTime,
-    setCanAbortSession,
-    setClaudeStatus,
     setIsUserScrolledUp,
     setPendingPermissionRequests,
+    resolvePermissionModeForProvider,
   });
 
-  // On WebSocket reconnect, re-fetch the current session's messages from the server
-  // so missed streaming events are shown. Also reset isLoading.
+  // On WebSocket reconnect, request a bounded persisted-tail sync (deferred
+  // while Chat is hidden), then re-subscribe — the
+  // `chat_subscribed` ack restores or clears the activity indicator, replays
+  // missed live events, and re-attaches a still-running stream to this socket.
   const handleWebSocketReconnect = useCallback(async () => {
     if (!selectedProject || !selectedSession) return;
-    const providerVal = (localStorage.getItem('selected-provider') as LLMProvider) || 'claude';
-    await sessionStore.refreshFromServer(selectedSession.id, {
-      provider: (selectedSession.__provider || providerVal) as LLMProvider,
-      // Use DB projectId; legacy folder-derived projectName is no longer accepted here.
-      projectId: selectedProject.projectId,
-      projectPath: selectedProject.fullPath || selectedProject.path || '',
+    await requestLatestMessages(selectedSession.id, isActive);
+    statusCheckSentAtRef.current.set(selectedSession.id, Date.now());
+    sendMessage({
+      type: 'chat.subscribe',
+      sessions: [{
+        sessionId: selectedSession.id,
+        lastSeq: lastSeqRef.current.get(selectedSession.id) ?? 0,
+      }],
     });
-    setIsLoading(false);
-    setCanAbortSession(false);
-  }, [selectedProject, selectedSession, sessionStore, setIsLoading, setCanAbortSession]);
+  }, [isActive, requestLatestMessages, selectedProject, selectedSession, sendMessage]);
 
   useChatRealtimeHandlers({
-    latestMessage,
+    isActive,
+    subscribe,
     provider,
     selectedSession,
     currentSessionId,
-    setCurrentSessionId,
-    setIsLoading,
-    setCanAbortSession,
-    setClaudeStatus,
     setTokenBudget,
+    pendingPermissionRequests,
     setPendingPermissionRequests,
-    pendingViewSessionRef,
     streamTimerRef,
     accumulatedStreamRef,
-    onSessionInactive,
-    onSessionActive,
+    lastSeqRef,
+    statusCheckSentAtRef,
     onSessionProcessing,
-    onSessionNotProcessing,
-    onNavigateToSession,
+    onSessionIdle,
     onWebSocketReconnect: handleWebSocketReconnect,
+    requestLatestMessages,
     sessionStore,
   });
 
   useEffect(() => {
-    if (!isLoading || !canAbortSession) {
+    if (!canAbortSession) {
       return;
     }
 
@@ -270,7 +277,7 @@ function ChatInterface({
     return () => {
       document.removeEventListener('keydown', handleGlobalEscape, { capture: true });
     };
-  }, [canAbortSession, handleAbortSession, isLoading]);
+  }, [canAbortSession, handleAbortSession]);
 
   useEffect(() => {
     return () => {
@@ -283,18 +290,39 @@ function ChatInterface({
     handlePermissionDecision,
   }), [pendingPermissionRequests, handlePermissionDecision]);
 
-  if (!selectedProject) {
-    const selectedProviderLabel =
-      provider === 'cursor'
-        ? t('messageTypes.cursor')
-        : provider === 'codex'
-          ? t('messageTypes.codex')
-          : provider === 'gemini'
-            ? t('messageTypes.gemini')
-            : provider === 'opencode'
-              ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
-            : t('messageTypes.claude');
+  // A composer pick becomes the default for new chats and, when a session is
+  // open, is recorded against that session so reopening it restores this model.
+  const handleSelectComposerModel = useCallback(async (model: string) => {
+    try {
+      await selectProviderModel(provider, model, currentSessionId || selectedSession?.id || null);
+    } catch (error) {
+      console.error('Error changing the active session model:', error);
+    }
+  }, [currentSessionId, provider, selectProviderModel, selectedSession?.id]);
 
+  const handleSelectComposerEffort = useCallback(async (effort: string) => {
+    try {
+      await selectProviderEffort(provider, effort, currentSessionId || selectedSession?.id || null);
+    } catch (error) {
+      console.error('Error changing the active session reasoning effort:', error);
+    }
+  }, [currentSessionId, provider, selectProviderEffort, selectedSession?.id]);
+
+  // Mirrors ChatComposer's own visibility check so the message pane can
+  // reserve enough bottom space to keep the floating status tab from
+  // overlapping the last message.
+  const hasActivityIndicator = Boolean(sessionActivity && pendingPermissionRequests.length === 0);
+
+  const selectedProviderLabel =
+    provider === 'cursor'
+      ? t('messageTypes.cursor')
+      : provider === 'codex'
+        ? t('messageTypes.codex')
+        : provider === 'opencode'
+            ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
+          : t('messageTypes.claude');
+
+  if (!selectedProject) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center text-muted-foreground">
@@ -311,12 +339,14 @@ function ChatInterface({
 
   return (
     <PermissionContext.Provider value={permissionContextValue}>
-      <div className="flex h-full flex-col">
+      <div className="flex h-full min-h-0 flex-col">
         <ChatMessagesPane
           scrollContainerRef={scrollContainerRef}
           onWheel={handleScroll}
           onTouchMove={handleScroll}
           isLoadingSessionMessages={isLoadingSessionMessages}
+          isProcessing={isProcessing}
+          hasActivityIndicator={hasActivityIndicator}
           chatMessages={chatMessages}
           selectedSession={selectedSession}
           currentSessionId={currentSessionId}
@@ -329,11 +359,10 @@ function ChatInterface({
           setCursorModel={setCursorModel}
           codexModel={codexModel}
           setCodexModel={setCodexModel}
-          geminiModel={geminiModel}
-          setGeminiModel={setGeminiModel}
           opencodeModel={opencodeModel}
           setOpenCodeModel={setOpenCodeModel}
           providerModelCatalog={providerModelCatalog}
+          providerModelActions={providerModelActions}
           providerModelsLoading={providerModelsLoading}
           tasksEnabled={tasksEnabled}
           isTaskMasterInstalled={isTaskMasterInstalled}
@@ -355,42 +384,63 @@ function ChatInterface({
           onFileOpen={onFileOpen}
           onShowSettings={onShowSettings}
           onGrantToolPermission={handleGrantToolPermission}
-          autoExpandTools={autoExpandTools}
           showRawParameters={showRawParameters}
           showThinking={showThinking}
           selectedProject={selectedProject}
         />
 
-        <ChatComposer
+        <div className="relative flex-shrink-0">
+          {isUserScrolledUp && chatMessages.length > 0 && (
+            <div className="pointer-events-none absolute -top-11 left-0 right-0 z-20 flex justify-center">
+              <button
+                type="button"
+                onClick={scrollToBottomAndReset}
+                aria-label={t('input.scrollToBottom', { defaultValue: 'Scroll to bottom' })}
+                className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-border/50 bg-card text-muted-foreground shadow-sm transition-all duration-200 hover:bg-accent hover:text-foreground"
+                title={t('input.scrollToBottom', { defaultValue: 'Scroll to bottom' })}
+              >
+                <ArrowDownIcon className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
+          )}
+
+          <ChatComposer
           pendingPermissionRequests={pendingPermissionRequests}
           handlePermissionDecision={handlePermissionDecision}
           handleGrantToolPermission={handleGrantToolPermission}
-          claudeStatus={claudeStatus}
-          isLoading={isLoading}
-          processingStartTime={processingStartTime}
+          activity={sessionActivity}
+          isLoading={isProcessing}
           onAbortSession={handleAbortSession}
-          provider={provider}
           permissionMode={permissionMode}
-          onModeSwitch={cyclePermissionMode}
+          availablePermissionModes={availablePermissionModes}
+          onSelectPermissionMode={(mode) => selectPermissionMode(mode as PermissionMode)}
+          providerLabel={selectedProviderLabel}
+          effort={currentProviderEffort}
+          availableEffortOptions={currentProviderEffortOptions}
+          onSelectEffort={handleSelectComposerEffort}
+          model={currentProviderModel}
+          availableModelOptions={currentProviderModelOptions}
+          onSelectModel={handleSelectComposerModel}
+          modelsLoading={providerModelsLoading}
           tokenBudget={tokenBudget}
           onShowTokenUsage={showCostModal}
           slashCommandsCount={slashCommandsCount}
           onToggleCommandMenu={handleToggleCommandMenu}
           hasInput={Boolean(input.trim())}
           onClearInput={handleClearInput}
-          isUserScrolledUp={isUserScrolledUp}
-          hasMessages={chatMessages.length > 0}
-          onScrollToBottom={scrollToBottomAndReset}
           onSubmit={handleSubmit}
           isDragActive={isDragActive}
-          attachedImages={attachedImages}
-          onRemoveImage={(index) =>
-            setAttachedImages((previous) =>
+          queuedDraft={queuedDraft}
+          onEditQueuedDraft={editQueuedDraft}
+          onDeleteQueuedDraft={deleteQueuedDraft}
+          attachedFiles={attachedFiles}
+          onRemoveAttachment={(index) =>
+            setAttachedFiles((previous) =>
               previous.filter((_, currentIndex) => currentIndex !== index),
             )
           }
-          uploadingImages={uploadingImages}
-          imageErrors={imageErrors}
+          uploadingFiles={uploadingFiles}
+          fileErrors={fileErrors}
           showFileDropdown={showFileDropdown}
           filteredFiles={filteredFiles}
           selectedFileIndex={selectedFileIndex}
@@ -403,44 +453,34 @@ function ChatInterface({
           frequentCommands={commandQuery ? [] : frequentCommands}
           getRootProps={getRootProps as (...args: unknown[]) => Record<string, unknown>}
           getInputProps={getInputProps as (...args: unknown[]) => Record<string, unknown>}
-          openImagePicker={openImagePicker}
+          openAttachmentPicker={openAttachmentPicker}
           inputHighlightRef={inputHighlightRef}
           renderInputWithMentions={renderInputWithMentions}
           textareaRef={textareaRef}
           input={input}
+          onVoiceTranscript={handleVoiceTranscript}
           onInputChange={handleInputChange}
           onTextareaClick={handleTextareaClick}
           onTextareaKeyDown={handleKeyDown}
           onTextareaPaste={handlePaste}
           onTextareaScrollSync={syncInputOverlayScroll}
           onTextareaInput={handleTextareaInput}
+          isInputFocused={isInputFocused}
           onInputFocusChange={handleInputFocusChange}
-          placeholder={t('input.placeholder', {
-            provider:
-              provider === 'cursor'
-                ? t('messageTypes.cursor')
-                : provider === 'codex'
-                  ? t('messageTypes.codex')
-                  : provider === 'gemini'
-                    ? t('messageTypes.gemini')
-                    : provider === 'opencode'
-                      ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
-                    : t('messageTypes.claude'),
-          })}
+          placeholder={t('input.placeholder', { provider: selectedProviderLabel })}
           isTextareaExpanded={isTextareaExpanded}
           sendByCtrlEnter={sendByCtrlEnter}
         />
+        </div>
       </div>
-
-      <QuickSettingsPanel />
 
       <CommandResultModal
         payload={commandModalPayload}
         onClose={closeCommandModal}
         providerModelCatalog={providerModelCatalog}
-        providerModelCacheCatalog={providerModelCacheCatalog}
-        providerModelsRefreshing={providerModelsRefreshing}
-        onHardRefreshProviderModels={hardRefreshProviderModels}
+        providerModelActions={providerModelActions}
+        activeProvider={provider}
+        activeProviderModel={currentProviderModel}
         currentSessionId={currentSessionId || selectedSession?.id || null}
         onSelectProviderModel={selectProviderModel}
       />

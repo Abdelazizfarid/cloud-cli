@@ -22,7 +22,9 @@
     "shell": "Terminale",
     "files": "File",
     "git": "Controllo Versione",
-    "tasks": "Attività"
+    "tasks": "Attività",
+    "browser": "Browser",
+    "computer": "Computer"
   },
   "status": {
     "loading": "Caricamento...",
@@ -126,6 +128,7 @@
       "download": "Scarica",
       "newFile": "Nuovo file",
       "newFolder": "Nuova cartella",
+      "upload": "Carica file",
       "refresh": "Aggiorna",
       "menuLabel": "Menu contestuale file",
       "loading": "Caricamento..."

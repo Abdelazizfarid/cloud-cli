@@ -24,13 +24,32 @@ import enCodeEditor from './locales/en/codeEditor.json';
 // eslint-disable-next-line import-x/order
 import enTasks from './locales/en/tasks.json';
 
+import frCommon from './locales/fr/common.json';
+import frSettings from './locales/fr/settings.json';
+import frAuth from './locales/fr/auth.json';
+import frSidebar from './locales/fr/sidebar.json';
+import frChat from './locales/fr/chat.json';
+import frCodeEditor from './locales/fr/codeEditor.json';
+// eslint-disable-next-line import-x/order
+import frTasks from './locales/fr/tasks.json';
+
+import esCommon from './locales/es/common.json';
+import esSettings from './locales/es/settings.json';
+import esAuth from './locales/es/auth.json';
+import esSidebar from './locales/es/sidebar.json';
+import esChat from './locales/es/chat.json';
+import esCodeEditor from './locales/es/codeEditor.json';
+// eslint-disable-next-line import-x/order
+import esTasks from './locales/es/tasks.json';
+
 import koCommon from './locales/ko/common.json';
 import koSettings from './locales/ko/settings.json';
 import koAuth from './locales/ko/auth.json';
 import koSidebar from './locales/ko/sidebar.json';
 import koChat from './locales/ko/chat.json';
-// eslint-disable-next-line import-x/order
 import koCodeEditor from './locales/ko/codeEditor.json';
+// eslint-disable-next-line import-x/order
+import koTasks from './locales/ko/tasks.json';
 
 import zhCommon from './locales/zh-CN/common.json';
 import zhSettings from './locales/zh-CN/settings.json';
@@ -39,6 +58,7 @@ import zhSidebar from './locales/zh-CN/sidebar.json';
 import zhChat from './locales/zh-CN/chat.json';
 // eslint-disable-next-line import-x/order
 import zhCodeEditor from './locales/zh-CN/codeEditor.json';
+import zhTasks from './locales/zh-CN/tasks.json';
 
 import jaCommon from './locales/ja/common.json';
 import jaSettings from './locales/ja/settings.json';
@@ -126,6 +146,24 @@ i18n
         codeEditor: enCodeEditor,
         tasks: enTasks,
       },
+      fr: {
+        common: frCommon,
+        settings: frSettings,
+        auth: frAuth,
+        sidebar: frSidebar,
+        chat: frChat,
+        codeEditor: frCodeEditor,
+        tasks: frTasks,
+      },
+      es: {
+        common: esCommon,
+        settings: esSettings,
+        auth: esAuth,
+        sidebar: esSidebar,
+        chat: esChat,
+        codeEditor: esCodeEditor,
+        tasks: esTasks,
+      },
       ko: {
         common: koCommon,
         settings: koSettings,
@@ -133,6 +171,7 @@ i18n
         sidebar: koSidebar,
         chat: koChat,
         codeEditor: koCodeEditor,
+        tasks: koTasks,
       },
       'zh-CN': {
         common: zhCommon,
@@ -141,6 +180,7 @@ i18n
         sidebar: zhSidebar,
         chat: zhChat,
         codeEditor: zhCodeEditor,
+        tasks: zhTasks,
       },
       ja: {
         common: jaCommon,

@@ -1,6 +1,6 @@
 import type { Project } from '../../../types/app';
 
-export type GitPanelView = 'changes' | 'history' | 'branches';
+export type GitPanelView = 'changes' | 'history' | 'branches' | 'worktrees';
 export type FileStatusCode = 'M' | 'A' | 'D' | 'U';
 export type GitStatusFileGroup = 'modified' | 'added' | 'deleted' | 'untracked';
 export type ConfirmActionType = 'discard' | 'delete' | 'commit' | 'pull' | 'push' | 'publish' | 'revertLocalCommit' | 'deleteBranch';
@@ -16,6 +16,10 @@ export type GitPanelProps = {
   selectedProject: Project | null;
   isMobile?: boolean;
   onFileOpen?: FileOpenHandler;
+  /** Switches the app to another project — used by the Worktrees view to jump into a worktree. */
+  onProjectSelect?: (project: Project) => void;
+  /** Silently re-syncs the sidebar project list after worktree projects are created/archived. */
+  onProjectsRefresh?: () => void;
 };
 
 export type GitStatusResponse = {
@@ -25,8 +29,12 @@ export type GitStatusResponse = {
   added?: string[];
   deleted?: string[];
   untracked?: string[];
+  /** Paths with index-side changes — mirrors the real git index. */
+  staged?: string[];
   error?: string;
   details?: string;
+  /** True when the project directory is not a git repository — the UI offers `git init`. */
+  notGitRepository?: boolean;
 };
 
 export type GitRemoteStatus = {
@@ -49,6 +57,10 @@ export type GitCommitSummary = {
   date: string;
   message: string;
   stats?: string;
+  /** Parent commit hashes — drives the History view commit graph. */
+  parents?: string[];
+  /** Ref decorations, e.g. "HEAD -> main", "origin/main", "tag: v1.0". */
+  refs?: string[];
 };
 
 export type GitDiffMap = Record<string, string>;
@@ -62,6 +74,12 @@ export type ConfirmationRequest = {
   type: ConfirmActionType;
   message: string;
   onConfirm: () => Promise<void> | void;
+  alternateConfirmation?: {
+    label: string;
+    description: string;
+    actionLabel: string;
+    onConfirm: () => Promise<void> | void;
+  };
 };
 
 export type UseGitPanelControllerOptions = {
@@ -74,6 +92,7 @@ export type GitPanelController = {
   gitStatus: GitStatusResponse | null;
   gitDiff: GitDiffMap;
   isLoading: boolean;
+  isLoadingCommits: boolean;
   currentBranch: string;
   branches: string[];
   localBranches: string[];
@@ -87,22 +106,26 @@ export type GitPanelController = {
   isPushing: boolean;
   isPublishing: boolean;
   isCreatingInitialCommit: boolean;
+  isInitializingRepository: boolean;
   operationError: string | null;
   clearOperationError: () => void;
   refreshAll: () => void;
   switchBranch: (branchName: string) => Promise<boolean>;
   createBranch: (branchName: string) => Promise<boolean>;
-  deleteBranch: (branchName: string) => Promise<boolean>;
+  deleteBranch: (branchName: string, force?: boolean) => Promise<boolean>;
   handleFetch: () => Promise<void>;
   handlePull: () => Promise<void>;
   handlePush: () => Promise<void>;
   handlePublish: () => Promise<void>;
   discardChanges: (filePath: string) => Promise<void>;
   deleteUntrackedFile: (filePath: string) => Promise<void>;
+  stageFiles: (files: string[]) => Promise<boolean>;
+  unstageFiles: (files: string[]) => Promise<boolean>;
   fetchCommitDiff: (commitHash: string) => Promise<void>;
   generateCommitMessage: (files: string[]) => Promise<string | null>;
   commitChanges: (message: string, files: string[]) => Promise<boolean>;
   createInitialCommit: () => Promise<boolean>;
+  initRepository: () => Promise<boolean>;
   openFile: (filePath: string) => Promise<void>;
 };
 
@@ -139,4 +162,54 @@ export type GitFileWithDiffResponse = GitApiErrorResponse & {
   currentContent?: string;
   isDeleted?: boolean;
   isUntracked?: boolean;
+};
+
+// ---------------------------------------------------------------------------
+// Worktrees — mirrors the /api/worktrees payloads (server/shared/types.ts)
+// ---------------------------------------------------------------------------
+
+export type WorktreeInfo = {
+  path: string;
+  branch: string | null;
+  headSha: string | null;
+  isMain: boolean;
+  isCurrent: boolean;
+  isLocked: boolean;
+  isDetached: boolean;
+  changedFileCount: number;
+  ahead: number;
+  behind: number;
+  lastCommitSubject: string | null;
+  lastCommitDate: string | null;
+  linkedProjectId: string | null;
+  linkedProjectArchived: boolean;
+};
+
+export type WorktreeListData = {
+  repositoryRoot: string;
+  /** Branch checked out in the main worktree — the merge target. */
+  baseBranch: string | null;
+  worktrees: WorktreeInfo[];
+};
+
+/** `/api/worktrees` uses the shared `{ success, data | error }` envelope. */
+export type WorktreeApiEnvelope<TData> = {
+  success?: boolean;
+  data?: TData;
+  error?: {
+    code?: string;
+    message?: string;
+    details?: unknown;
+  };
+};
+
+export type MergeWorktreeOptions = {
+  squash: boolean;
+  message: string;
+  removeAfterMerge: boolean;
+};
+
+export type RemoveWorktreeOptions = {
+  force: boolean;
+  deleteBranch: boolean;
 };

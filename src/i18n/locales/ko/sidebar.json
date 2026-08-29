@@ -48,7 +48,9 @@
     "activeSessionIndicator": "최근 활성 세션 (지난 10분)",
     "save": "저장",
     "cancel": "취소",
-    "openCommandPalette": "명령 팔레트 열기"
+    "clearSearch": "검색 지우기",
+    "openCommandPalette": "명령 팔레트 열기",
+    "attentionRequiredIndicator": "세션에 주의가 필요합니다"
   },
   "navigation": {
     "chat": "채팅",
@@ -105,10 +107,31 @@
     "deleteProjectFailed": "프로젝트 제거 실패. 다시 시도해주세요.",
     "deleteProjectError": "프로젝트 제거 오류. 다시 시도해주세요.",
     "createProjectFailed": "프로젝트 생성 실패. 다시 시도해주세요.",
-    "createProjectError": "프로젝트 생성 오류. 다시 시도해주세요."
+    "createProjectError": "프로젝트 생성 오류. 다시 시도해주세요.",
+    "updateProjectError": "프로젝트 업데이트 오류. 다시 시도해주세요.",
+    "refreshError": "새로고침 실패. 다시 시도해주세요.",
+    "restoreProjectFailed": "프로젝트 복원 실패. 다시 시도해주세요.",
+    "restoreProjectError": "프로젝트 복원 오류. 다시 시도해주세요.",
+    "restoreSessionFailed": "세션 복원 실패. 다시 시도해주세요.",
+    "restoreSessionError": "세션 복원 오류. 다시 시도해주세요."
   },
   "version": {
-    "updateAvailable": "업데이트 가능"
+    "updateAvailable": "업데이트 가능",
+    "restartRequired": "업데이트가 설치됨 — 적용하려면 서버를 재시작하세요"
+  },
+  "search": {
+    "modeProjects": "프로젝트",
+    "modeConversations": "대화",
+    "conversationsPlaceholder": "대화 내용 검색...",
+    "searching": "검색 중...",
+    "sessionTitles": "세션 제목",
+    "conversationContents": "대화 내용",
+    "noResults": "결과를 찾을 수 없습니다",
+    "tryDifferentQuery": "다른 검색어로 시도해보세요",
+    "matches_one": "{{count}}개 일치",
+    "matches_other": "{{count}}개 일치",
+    "projectsScanned_one": "프로젝트 {{count}}개 검색됨",
+    "projectsScanned_other": "프로젝트 {{count}}개 검색됨"
   },
   "deleteConfirmation": {
     "deleteProject": "프로젝트 제거",

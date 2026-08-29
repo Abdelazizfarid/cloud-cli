@@ -1,7 +1,9 @@
 import { ExternalLink, Star, MessageSquare } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { IS_PLATFORM } from '../../../../../../constants/config';
-import type { ReleaseInfo } from '../../../../../../types/sharedTypes';
+
+import { CLOUDCLI_WORDMARK_FONT_FAMILY } from '../../../../../../shared/constants';
+import { IS_PLATFORM } from '../../../../../../shared/utils';
+import type { ReleaseInfo } from '../../../../../../shared/types';
 
 const GITHUB_REPO_URL = 'https://github.com/siteboon/claudecodeui';
 const DISCORD_URL = 'https://discord.gg/buxwujPNRE';
@@ -51,7 +53,12 @@ export default function VersionInfoSection({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-foreground">CloudCLI</span>
+              <span
+                className="text-sm font-semibold text-foreground"
+                style={{ fontFamily: CLOUDCLI_WORDMARK_FONT_FAMILY }}
+              >
+                CloudCLI
+              </span>
               <a
                 href={releasesUrl}
                 target="_blank"

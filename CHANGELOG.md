@@ -3,6 +3,138 @@
 All notable changes to CloudCLI UI will be documented in this file.
 
 
+## [1.37.2](https://github.com/siteboon/claudecodeui/compare/v1.37.1...v1.37.2) (2026-08-18)
+
+### Bug Fixes
+
+* improve chat view and resolve bandwidth issue ([#1153](https://github.com/siteboon/claudecodeui/issues/1153)) ([0a2ad34](https://github.com/siteboon/claudecodeui/commit/0a2ad34365b7f01dcd01b87fe3f856844c0dc531))
+* introduce fallback for update build failures ([0d51774](https://github.com/siteboon/claudecodeui/commit/0d5177491215c1c2a53ad23a30f7deec8de2e1af))
+
+## [1.37.1](https://github.com/siteboon/claudecodeui/compare/v1.37.0...v1.37.1) (2026-08-13)
+
+### New Features
+
+* add provider session ID copy actions ([#1040](https://github.com/siteboon/claudecodeui/issues/1040)) ([428b105](https://github.com/siteboon/claudecodeui/commit/428b1052be3bb28611d2ef3fcd29cec5a9ca1397))
+* **i18n:** add complete Spanish (es) translation ([#1090](https://github.com/siteboon/claudecodeui/issues/1090)) ([5fa87dd](https://github.com/siteboon/claudecodeui/commit/5fa87ddaf7c1c06c33c34f48a462743aa3877edf))
+* **i18n:** complete Korean (ko) translation ([#997](https://github.com/siteboon/claudecodeui/issues/997)) ([59472c0](https://github.com/siteboon/claudecodeui/commit/59472c075eb2f28a48df9d9eff659ad823d31bd2))
+* **plugins:** recommend Codex Usage plugin ([#1114](https://github.com/siteboon/claudecodeui/issues/1114)) ([ca92373](https://github.com/siteboon/claudecodeui/commit/ca92373dfead92f7f777093e72e9a118a97ff97a))
+* **sidebar:** add recent conversation feed ([#1041](https://github.com/siteboon/claudecodeui/issues/1041)) ([015e892](https://github.com/siteboon/claudecodeui/commit/015e892c75e29b1771399691dbca3c8b466fa0b1))
+
+### Bug Fixes
+
+* **claude:** remove dead CLAUDE_CODE_STREAM_CLOSE_TIMEOUT workaround ([#1115](https://github.com/siteboon/claudecodeui/issues/1115)) ([ef3f798](https://github.com/siteboon/claudecodeui/commit/ef3f7980db15c89761c3a1aad8b608fff33789ad))
+* don't recurse into system directories when building file trees ([#1074](https://github.com/siteboon/claudecodeui/issues/1074)) ([753a8c0](https://github.com/siteboon/claudecodeui/commit/753a8c0422685bafd4e878c44726f727357a3fb5))
+* resolve @/ path aliases so the server test suite can load ([#1084](https://github.com/siteboon/claudecodeui/issues/1084)) ([74d3f8f](https://github.com/siteboon/claudecodeui/commit/74d3f8ffff6f315d2f2ceb240512aeb2d8b40464))
+* **search:** match Claude transcripts by provider_session_id ([#1078](https://github.com/siteboon/claudecodeui/issues/1078)) ([9507694](https://github.com/siteboon/claudecodeui/commit/95076941533dc14f04d83917e1e7c04229e664c1))
+* tolerate client clock skew before treating an auth token as expired ([#1085](https://github.com/siteboon/claudecodeui/issues/1085)) ([f0dca2d](https://github.com/siteboon/claudecodeui/commit/f0dca2d5e79c225f599e697bf9b55e839b152b78))
+* update stale Sonnet 4.6 labels to Sonnet 5 in the Claude model picker ([#1036](https://github.com/siteboon/claudecodeui/issues/1036)) ([c2408f0](https://github.com/siteboon/claudecodeui/commit/c2408f0fc331fb267fdc9def954e55f71d019302))
+
+## [1.37.0](https://github.com/siteboon/claudecodeui/compare/v1.36.3...v1.37.0) (2026-07-29)
+
+### New Features
+
+* numerous bugfixes and features ([#1037](https://github.com/siteboon/claudecodeui/issues/1037)) ([06e7ee9](https://github.com/siteboon/claudecodeui/commit/06e7ee9fb8c6afd1066566e8dc0e2c0c853a4990))
+
+### Bug Fixes
+
+* check CLAUDE_CODE_OAUTH_TOKEN in checkCredentials() ([#979](https://github.com/siteboon/claudecodeui/issues/979)) ([75ff8a5](https://github.com/siteboon/claudecodeui/commit/75ff8a5dcd0d63dced4c662bbf9433d7515d09da))
+
+## [1.36.3](https://github.com/siteboon/claudecodeui/compare/v1.36.2...v1.36.3) (2026-07-15)
+
+### Bug Fixes
+
+* codex subagents should not appear in the sidebar ([283b558](https://github.com/siteboon/claudecodeui/commit/283b5586d2a6704d93ab7d0627ee947f8fef9809))
+* remove node_env from electron ([f2a95d6](https://github.com/siteboon/claudecodeui/commit/f2a95d64982c3372abfb9ff144244c2383476bd3))
+
+### Maintenance
+
+* refresh better-sqlite3 lock ([#1027](https://github.com/siteboon/claudecodeui/issues/1027)) ([31645e3](https://github.com/siteboon/claudecodeui/commit/31645e3fdc63857d9970eae8abef8ecbc5122796))
+
+## [1.36.2](https://github.com/siteboon/claudecodeui/compare/v1.36.1...v1.36.2) (2026-07-14)
+
+### Bug Fixes
+
+* bump @openai/codex-sdk to ^0.144.0 to support newer Codex models ([#1001](https://github.com/siteboon/claudecodeui/issues/1001)) ([038d960](https://github.com/siteboon/claudecodeui/commit/038d960c75b547f111751a39f28689ac66fca76d))
+* harden docker cloudcli install ([123d244](https://github.com/siteboon/claudecodeui/commit/123d244a5143c3954d2f1c54240a5e683ca74a4e))
+* validate X-Refreshed-Token before storing it as the auth token ([#971](https://github.com/siteboon/claudecodeui/issues/971)) ([5884573](https://github.com/siteboon/claudecodeui/commit/5884573a6975f53381759a28280afd9c8bb332c4))
+
+## [1.36.1](https://github.com/siteboon/claudecodeui/compare/v1.36.0...v1.36.1) (2026-07-08)
+
+### New Features
+
+* **redesign:** skills and MCP action controls in settings ([#942](https://github.com/siteboon/claudecodeui/issues/942)) ([41e0d30](https://github.com/siteboon/claudecodeui/commit/41e0d309e06edda14abc6912ade5c2f9d4a90984))
+
+## [](https://github.com/siteboon/claudecodeui/compare/v1.35.1...vnull) (2026-07-03)
+
+### New Features
+
+* add Claude and Codex effort controls ([#943](https://github.com/siteboon/claudecodeui/issues/943)) ([d272922](https://github.com/siteboon/claudecodeui/commit/d272922d87e4ee74bf8b0fdeac83b2c1e77973f3))
+
+## [1.35.1](https://github.com/siteboon/claudecodeui/compare/v1.35.0...v1.35.1) (2026-07-01)
+
+### Bug Fixes
+
+* preview video on new tab ([#933](https://github.com/siteboon/claudecodeui/issues/933)) ([2ebe64f](https://github.com/siteboon/claudecodeui/commit/2ebe64f21874f45f6c8747310be874ae7342c61c))
+* remove obsolete semantic helper release jobs ([1e16f1f](https://github.com/siteboon/claudecodeui/commit/1e16f1f0854e347aa333434638d64f2b167d9a9d))
+* resolve mobile shell issues ([#923](https://github.com/siteboon/claudecodeui/issues/923)) ([b6cf333](https://github.com/siteboon/claudecodeui/commit/b6cf33308da996f8169580a4b5b74e3c5f38e447))
+
+### Maintenance
+
+* remove computer use ([6761f31](https://github.com/siteboon/claudecodeui/commit/6761f31a56fe82d82c7e0c079b4891e7d5a81817))
+
+## [1.35.0](https://github.com/siteboon/claudecodeui/compare/v1.34.0...v1.35.0) (2026-06-29)
+
+### New Features
+
+* add Electron desktop app ([97c9b67](https://github.com/siteboon/claudecodeui/commit/97c9b67bfc2d803560cd1559a4e79eea9731c7b5))
+* **chat:** derive activity indicator from per-session state and unify provider lifecycle events ([afc717e](https://github.com/siteboon/claudecodeui/commit/afc717e69e67f53173c30d2230722236f9180d39))
+* **chat:** unify session gateway with stable IDs and a single WS protocol ([f5eac2e](https://github.com/siteboon/claudecodeui/commit/f5eac2ec12c8575bf80202fafe807d9e04720105))
+* **i18n:** add French (fr) locale ([#878](https://github.com/siteboon/claudecodeui/issues/878)) ([f319d2c](https://github.com/siteboon/claudecodeui/commit/f319d2cf8d61452deaf6adf345494dd3e6898284))
+* play sound for pending tool requests ([#918](https://github.com/siteboon/claudecodeui/issues/918)) ([c947eaa](https://github.com/siteboon/claudecodeui/commit/c947eaaee5fbc959563efb917f4ec7c88847dd6b))
+* render changelog as markdown in version upgrade modal ([6a53c31](https://github.com/siteboon/claudecodeui/commit/6a53c31e907fffa79320997c27f99660c946b4a6))
+* **sidebar:** improve running session state tracking ([591b18e](https://github.com/siteboon/claudecodeui/commit/591b18e9e343fda23affe100a53911f76aaa8f57))
+* **skills:** add provider skill management ([#909](https://github.com/siteboon/claudecodeui/issues/909)) ([c5fe127](https://github.com/siteboon/claudecodeui/commit/c5fe127958d830eee19d008d8634c0e7d77fe1b9))
+* **version:** warn when the server was updated but not restarted ([#898](https://github.com/siteboon/claudecodeui/issues/898)) ([f6326c8](https://github.com/siteboon/claudecodeui/commit/f6326c8082dfbe8a65dcdb836d3e71c635594c26))
+
+### Bug Fixes
+
+* changes provider logos to svg for fast load ([7bed675](https://github.com/siteboon/claudecodeui/commit/7bed675ad5fd1ecf7912d1a04afe9db5b1032823))
+* **chat:** prevent chat interface crash on malformed AskUserQuestion payload ([#920](https://github.com/siteboon/claudecodeui/issues/920)) ([ed4ae31](https://github.com/siteboon/claudecodeui/commit/ed4ae3114aafc1d4ecb0b621eaf9d3b26dbca5b1))
+* **chat:** prevent normalizeInlineCodeFences from breaking adjacent fenced code blocks ([#903](https://github.com/siteboon/claudecodeui/issues/903)) ([4712431](https://github.com/siteboon/claudecodeui/commit/4712431be81718dfb559ef43d7d7d5315bf4e01a))
+* **chat:** sort messages appropriately ([123ae31](https://github.com/siteboon/claudecodeui/commit/123ae310207fe5969c3b313f62b9dee27e5d7489))
+* **claude-sync:** skip subagent transcripts to prevent main session corruption ([#854](https://github.com/siteboon/claudecodeui/issues/854)) ([a12ca8e](https://github.com/siteboon/claudecodeui/commit/a12ca8eed373ef56cd37fbdd097845eaab34dee9))
+* correct notification session id ([881e72d](https://github.com/siteboon/claudecodeui/commit/881e72d4a00ec9c1a5e1ae4799bffa900f27c1f8))
+* create one unified function for frontend session processing ([677d330](https://github.com/siteboon/claudecodeui/commit/677d330981ef29a856f09e62b9f69bac0fa580d4))
+* **i18n:** add missing sidebar message keys to all locales ([#896](https://github.com/siteboon/claudecodeui/issues/896)) ([7ca3556](https://github.com/siteboon/claudecodeui/commit/7ca355651f0a805965bc27af3d75def626c5fb96))
+* keep running-session polling active ([39b0473](https://github.com/siteboon/claudecodeui/commit/39b0473e38201c29ff1e5388946452d2eed44527))
+* normalize project session payloads ([d0adddb](https://github.com/siteboon/claudecodeui/commit/d0adddbbdafecfd5713a8ac5b95c87a8f7fc54f8))
+* **opencode:** bind watcher sessions to app rows early ([5b9adbb](https://github.com/siteboon/claudecodeui/commit/5b9adbbdee8561439a27ad90744388225823427b))
+* **opencode:** pass workspace dir explicitly ([416a737](https://github.com/siteboon/claudecodeui/commit/416a737d76e654d2fc649206c2b921a7db150775))
+* recover pending permission requests ([56b2e14](https://github.com/siteboon/claudecodeui/commit/56b2e1405967c50301d0c773567349763edc8560))
+* remove provider specific token usage calculator ([2abb456](https://github.com/siteboon/claudecodeui/commit/2abb45636b5e1109733cfa58c8ab92fd4c812165))
+* resolve session provider on backend reads ([9fb2d91](https://github.com/siteboon/claudecodeui/commit/9fb2d91b26bef9579337d953a29718802c466fed))
+* **sessions:** canonicalize sidebar ids and timestamps ([3bbb42c](https://github.com/siteboon/claudecodeui/commit/3bbb42c23324c3cbb5587f2bcab09b1dc23086a8))
+* **shell:** prioritize user npm binaries ([#913](https://github.com/siteboon/claudecodeui/issues/913)) ([4a503b1](https://github.com/siteboon/claudecodeui/commit/4a503b1dc87ff58821670c8bfb1d8a8c1dab2bcf))
+* **shell:** use correct session id ([89f0524](https://github.com/siteboon/claudecodeui/commit/89f05247eddec4fe53bd1616c6a5563e3ae2427a))
+* **sidebar:** align session status controls across layouts ([1b336e9](https://github.com/siteboon/claudecodeui/commit/1b336e9aa9d2cccf0676d852815d9ba613ac04d2))
+* upgrade gemini logo ([9cb2afd](https://github.com/siteboon/claudecodeui/commit/9cb2afd67eb25a4f869b88abcf86f7748b2b6d71))
+* voice tts format settings ([#919](https://github.com/siteboon/claudecodeui/issues/919)) ([591e8e7](https://github.com/siteboon/claudecodeui/commit/591e8e7642589b0584f9b29b46b881aaab54624e))
+
+### Documentation
+
+* update available plugin readmes ([f549bd9](https://github.com/siteboon/claudecodeui/commit/f549bd99e7106362a27cf4ccee6e9d434b8b5363))
+* update session activity guard comment ([e23e6af](https://github.com/siteboon/claudecodeui/commit/e23e6af06a44cc4b016df5778984602d49e52629))
+
+### Maintenance
+
+* add github issues board plugin ([21b0f14](https://github.com/siteboon/claudecodeui/commit/21b0f14e7a86f257c65484742c43b9f85152b32c))
+* add more plugins list ([bc34085](https://github.com/siteboon/claudecodeui/commit/bc34085af9912da8d8592881a5845cff84a53f7d))
+* move tests to appropriate folder ([d7a38a5](https://github.com/siteboon/claudecodeui/commit/d7a38a567a5e9039935353a886310b3c32b25a79))
+* move tests to appropriate folder ([c6c153e](https://github.com/siteboon/claudecodeui/commit/c6c153e7f2a60572b08d687b59f010b4ad4f5d72))
+* remove a log ([00e526b](https://github.com/siteboon/claudecodeui/commit/00e526b6e90ee0baf09ebf48873bc10824ab80ba))
+* remove unused modelConstants from the project ([92de0ed](https://github.com/siteboon/claudecodeui/commit/92de0ed6137bf4571056deb3b930cc9fd22e2a08))
+* upgrade gemini models ([3d94821](https://github.com/siteboon/claudecodeui/commit/3d948217ef3084e764171ebc5dda55f663150b2c))
+
 ## [](https://github.com/siteboon/claudecodeui/compare/v1.33.3...vnull) (2026-06-09)
 
 ### New Features

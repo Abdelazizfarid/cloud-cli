@@ -1,11 +1,12 @@
 import type { Server as HttpServer } from 'node:http';
 
-import { WebSocketServer, type VerifyClientCallbackSync } from 'ws';
+import { WebSocket, WebSocketServer, type VerifyClientCallbackSync } from 'ws';
 
 import { handleChatConnection } from '@/modules/websocket/services/chat-websocket.service.js';
 import { verifyWebSocketClient } from '@/modules/websocket/services/websocket-auth.service.js';
 import { handlePluginWsProxy } from '@/modules/websocket/services/plugin-websocket-proxy.service.js';
 import { handleShellConnection } from '@/modules/websocket/services/shell-websocket.service.js';
+import { handleDesktopNotificationsConnection } from '@/modules/notifications/index.js';
 import type { AuthenticatedWebSocketRequest } from '@/shared/types.js';
 
 type WebSocketServerDependencies = {
@@ -16,8 +17,68 @@ type WebSocketServerDependencies = {
 };
 
 /**
+ * Used by this module's websocket gateway to keep active transports alive and
+ * close half-open connections so their route-specific clients can reconnect.
+ */
+export function attachWebSocketHeartbeat(
+  ws: WebSocket,
+  intervalMs = 30_000,
+  scheduler = {
+    setInterval,
+    clearInterval,
+  },
+): () => void {
+  let isAlive = true;
+  let stopped = false;
+
+  const markAlive = () => {
+    isAlive = true;
+  };
+
+  const stopHeartbeat = () => {
+    if (stopped) {
+      return;
+    }
+
+    stopped = true;
+    scheduler.clearInterval(heartbeat);
+    ws.off('pong', markAlive);
+    ws.off('close', stopHeartbeat);
+    ws.off('error', stopHeartbeat);
+  };
+
+  ws.on('pong', markAlive);
+  ws.on('close', stopHeartbeat);
+  ws.on('error', stopHeartbeat);
+
+  const heartbeat = scheduler.setInterval(() => {
+    if (ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    // A socket that did not answer the previous ping is half-open from the
+    // server's perspective. Terminating it emits close and lets clients resume.
+    if (!isAlive) {
+      stopHeartbeat();
+      ws.terminate();
+      return;
+    }
+
+    isAlive = false;
+    try {
+      ws.ping();
+    } catch {
+      stopHeartbeat();
+      ws.terminate();
+    }
+  }, intervalMs);
+
+  return stopHeartbeat;
+}
+
+/**
  * Creates and wires the server-wide websocket gateway used for chat, shell, and
- * plugin proxy routes.
+ * plugin proxy routes. Exported through the websocket module for server startup.
  */
 export function createWebSocketServer(
   server: HttpServer,
@@ -31,23 +92,7 @@ export function createWebSocketServer(
   });
 
   wss.on('connection', (ws, request) => {
-    // Keep WebSocket alive across reverse-proxy idle timeouts (Cloudflare ~100s,
-    // AWS ALB 60s, nginx 60s, etc.). Without app-level pings these connections
-    // are silently torn down even when the UI is active, causing repeated
-    // reconnect cycles. ws library heartbeat is opt-in.
-    const HEARTBEAT_INTERVAL_MS = 30_000;
-    const heartbeat = setInterval(() => {
-      if (ws.readyState === ws.OPEN) {
-        try {
-          ws.ping();
-        } catch {
-          // socket may have been closed concurrently — interval will be cleared below
-        }
-      }
-    }, HEARTBEAT_INTERVAL_MS);
-    const stopHeartbeat = () => clearInterval(heartbeat);
-    ws.on('close', stopHeartbeat);
-    ws.on('error', stopHeartbeat);
+    attachWebSocketHeartbeat(ws);
 
     const incomingRequest = request as AuthenticatedWebSocketRequest;
     const url = incomingRequest.url ?? '/';
@@ -60,6 +105,11 @@ export function createWebSocketServer(
 
     if (pathname === '/ws') {
       handleChatConnection(ws, incomingRequest, dependencies.chat);
+      return;
+    }
+
+    if (pathname === '/desktop-notifications') {
+      handleDesktopNotificationsConnection(ws, incomingRequest);
       return;
     }
 

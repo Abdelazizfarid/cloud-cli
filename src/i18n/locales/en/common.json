@@ -22,7 +22,9 @@
     "shell": "Shell",
     "files": "Files",
     "git": "Source Control",
-    "tasks": "Tasks"
+    "tasks": "Tasks",
+    "browser": "Browser",
+    "computer": "Computer"
   },
   "status": {
     "loading": "Loading...",
@@ -109,6 +111,7 @@
     "permissions": "Permissions",
     "noFilesFound": "No files found",
     "checkProjectPath": "Check if the project path is accessible",
+    "loadFailed": "Unable to load files",
     "noMatchesFound": "No matches found",
     "tryDifferentSearch": "Try a different search term or clear the search",
     "justNow": "just now",
@@ -126,6 +129,7 @@
       "download": "Download",
       "newFile": "New File",
       "newFolder": "New Folder",
+      "upload": "Upload Files",
       "refresh": "Refresh",
       "menuLabel": "File context menu",
       "loading": "Loading..."

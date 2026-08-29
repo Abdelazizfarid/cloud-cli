@@ -22,7 +22,9 @@
     "shell": "Terminal",
     "files": "Dateien",
     "git": "Quellcodeverwaltung",
-    "tasks": "Aufgaben"
+    "tasks": "Aufgaben",
+    "browser": "Browser",
+    "computer": "Computer"
   },
   "status": {
     "loading": "Lädt...",
@@ -126,6 +128,7 @@
       "download": "Herunterladen",
       "newFile": "Neue Datei",
       "newFolder": "Neuer Ordner",
+      "upload": "Dateien hochladen",
       "refresh": "Aktualisieren",
       "menuLabel": "Datei-Kontextmenü",
       "loading": "Lädt..."

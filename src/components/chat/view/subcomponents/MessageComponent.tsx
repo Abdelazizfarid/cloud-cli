@@ -1,21 +1,23 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
+import LLMProviderLogo from '../../../llm-provider-logo/LLMProviderLogo';
 import type {
   ChatMessage,
   ClaudePermissionSuggestion,
   PermissionGrantResult,
   Provider,
 } from '../../types/types';
-import { formatUsageLimitText } from '../../utils/chatFormatting';
+import { formatUsageLimitText, stripProposedPlanEnvelope } from '../../utils/chatFormatting';
 import type { Project } from '../../../../types/app';
-import { ToolRenderer, shouldHideToolResult } from '../../tools';
+import { ToolRenderer, ToolErrorDisplay, shouldHideToolResult } from '../../tools';
 import { Reasoning, ReasoningTrigger, ReasoningContent } from '../../../../shared/view/ui';
 
+import ChatMessageImages from './ChatMessageImages';
+import ChatMessageFiles from './ChatMessageFiles';
 import { Markdown } from './Markdown';
 import MessageCopyControl from './MessageCopyControl';
-import StreamingText from './StreamingText';
+import MessageSpeakControl from './MessageSpeakControl';
 
 type DiffLine = {
   type: string;
@@ -30,7 +32,6 @@ type MessageComponentProps = {
   onFileOpen?: (filePath: string, diffInfo?: unknown) => void;
   onShowSettings?: () => void;
   onGrantToolPermission?: (suggestion: ClaudePermissionSuggestion) => PermissionGrantResult | null | undefined;
-  autoExpandTools?: boolean;
   showRawParameters?: boolean;
   showThinking?: boolean;
   selectedProject?: Project | null;
@@ -45,92 +46,7 @@ type InteractiveOption = {
 
 const COPY_HIDDEN_TOOL_NAMES = new Set(['Bash', 'Edit', 'Write', 'ApplyPatch']);
 
-// Detect screenshot file paths in assistant messages and render as clickable thumbnails
-const SCREENSHOT_PATH_REGEX = /(?:\/(?:tmp|home|var|opt|root)[^\s`"']*\.(?:png|jpg|jpeg|gif|webp))/gi;
-
-function ScreenshotPreviews({ content }: { content: string }) {
-  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-
-  const paths = useMemo(() => {
-    const matches = content.match(SCREENSHOT_PATH_REGEX);
-    if (!matches) return [];
-    return [...new Set(matches)];
-  }, [content]);
-
-  useEffect(() => {
-    if (paths.length === 0) return;
-    const token = localStorage.getItem('auth-token');
-    paths.forEach(async (filePath) => {
-      if (signedUrls[filePath]) return;
-      try {
-        const resp = await fetch('/api/screenshots/sign', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-          body: JSON.stringify({ filePath }),
-        });
-        if (resp.ok) {
-          const { url } = await resp.json();
-          setSignedUrls((prev) => ({ ...prev, [filePath]: url }));
-        }
-      } catch { /* ignore */ }
-    });
-  }, [paths]);
-
-  if (paths.length === 0) return null;
-
-  return (
-    <>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {paths.map((p) => {
-          const url = signedUrls[p];
-          const filename = p.split('/').pop() || p;
-          return (
-            <div key={p} className="group relative">
-              {url ? (
-                <button
-                  onClick={() => setPreviewUrl(url)}
-                  className="overflow-hidden rounded-lg border border-white/20 transition-all hover:border-blue-400/60 hover:shadow-lg"
-                  title={filename}
-                >
-                  <img src={url} alt={filename} className="h-20 w-32 object-cover" loading="lazy" />
-                  <div className="absolute inset-x-0 bottom-0 bg-black/60 px-1.5 py-0.5 text-[10px] text-white truncate">
-                    {filename}
-                  </div>
-                </button>
-              ) : (
-                <div className="flex h-20 w-32 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-xs text-gray-400">
-                  Loading...
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      {previewUrl && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
-          onClick={() => setPreviewUrl(null)}
-        >
-          <img
-            src={previewUrl}
-            alt="Screenshot Preview"
-            className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
-          <button
-            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
-            onClick={() => setPreviewUrl(null)}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-    </>
-  );
-}
-
-const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, autoExpandTools, showRawParameters, showThinking, selectedProject, provider }: MessageComponentProps) => {
+const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, selectedProject, provider }: MessageComponentProps) => {
   const { t } = useTranslation('chat');
   const isGrouped = prevMessage && prevMessage.type === message.type &&
     ((prevMessage.type === 'assistant') ||
@@ -138,12 +54,15 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
       (prevMessage.type === 'tool') ||
       (prevMessage.type === 'error'));
   const messageRef = useRef<HTMLDivElement | null>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const userCopyContent = String(message.content || '');
   const formattedMessageContent = useMemo(
-    () => formatUsageLimitText(String(message.content || '')),
-    [message.content]
+    () => {
+      const content = formatUsageLimitText(String(message.content || ''));
+      return provider === 'codex' && message.type === 'assistant' && !message.isThinking
+        ? stripProposedPlanEnvelope(content)
+        : content;
+    },
+    [message.content, message.isThinking, message.type, provider]
   );
   const assistantCopyContent = message.isToolUse
     ? String(message.displayText || message.content || '')
@@ -157,32 +76,6 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
     !isCommandOrFileEditToolResponse &&
     !message.isThinking;
 
-
-  useEffect(() => {
-    const node = messageRef.current;
-    if (!autoExpandTools || !node || !message.isToolUse) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting && !isExpanded) {
-            setIsExpanded(true);
-            const details = node.querySelectorAll<HTMLDetailsElement>('details');
-            details.forEach((detail) => {
-              detail.open = true;
-            });
-          }
-        });
-      },
-      { threshold: 0.1 }
-    );
-
-    observer.observe(node);
-
-    return () => {
-      observer.unobserve(node);
-    };
-  }, [autoExpandTools, isExpanded, message.isToolUse]);
 
   const formattedTime = useMemo(() => new Date(message.timestamp).toLocaleTimeString(), [message.timestamp]);
   const shouldHideThinkingMessage = Boolean(message.isThinking && !showThinking);
@@ -198,73 +91,41 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
       className={`chat-message ${message.type} ${isGrouped ? 'grouped' : ''} ${message.type === 'user' ? 'flex justify-end px-3 sm:px-0' : 'px-3 sm:px-0'}`}
     >
       {message.type === 'user' ? (
-        /* User message bubble on the right */
+        /* User turn on the right: claude.ai-style attachment cards above the bubble */
         <div className="flex w-full items-end space-x-0 sm:w-auto sm:max-w-[85%] sm:space-x-3 md:max-w-md lg:max-w-lg xl:max-w-xl">
-          <div className="group flex-1 rounded-2xl rounded-br-md bg-blue-600 px-3 py-2 text-white shadow-sm sm:flex-initial sm:px-4">
-            <div dir="auto" className="whitespace-pre-wrap break-words text-sm">
-              {(() => {
-                const content = message.content || '';
-                const imagePathsMatch = content.match(/\n?\n?\[Images provided at the following paths:\]\n([\s\S]*?)$/);
-                if (imagePathsMatch) {
-                  const textContent = content.slice(0, content.indexOf('[Images provided at the following paths:]')).trimEnd();
-                  // If message.images has data URLs, just show text (images rendered below via message.images)
-                  if (message.images && message.images.length > 0) {
-                    return textContent || null;
-                  }
-                  // Try serving from disk paths (only works if files still exist)
-                  const pathLines = imagePathsMatch[1].trim().split('\n').map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(Boolean);
-                  // If paths are temp dirs (deleted after processing), just show text
-                  const areTempPaths = pathLines.some(p => p.includes('.tmp/images') || p.includes('claude-ui-uploads') || p.includes('/tmp/'));
-                  if (areTempPaths) {
-                    return <span>{textContent}</span>;
-                  }
-                  return (
-                    <>
-                      {textContent && <span>{textContent}</span>}
-                      <div className="mt-2 grid grid-cols-2 gap-1.5">
-                        {pathLines.map((p, i) => {
-                          const ext = p.split('.').pop()?.toLowerCase();
-                          const isPdf = ext === 'pdf';
-                          const imgUrl = `/api/images${p}`;
-                          return (
-                            <a key={i} href={imgUrl} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-lg border border-white/20 hover:border-white/50 transition-colors">
-                              {isPdf ? (
-                                <div className="flex h-16 items-center justify-center bg-white/10 text-xs">
-                                  <svg className="mr-1 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
-                                  PDF
-                                </div>
-                              ) : (
-                                <img src={imgUrl} alt={`Attachment ${i + 1}`} className="h-20 w-full object-cover" loading="lazy" />
-                              )}
-                            </a>
-                          );
-                        })}
-                      </div>
-                    </>
-                  );
-                }
-                return content;
-              })()}
-            </div>
+          <div className="flex min-w-0 flex-1 flex-col items-end gap-2 sm:flex-initial">
             {message.images && message.images.length > 0 && (
-              <div className="mt-2 grid grid-cols-2 gap-1.5">
-                {message.images.map((img, idx) => (
-                  <img
-                    key={img.name || idx}
-                    src={img.data}
-                    alt={img.name || `Image ${idx + 1}`}
-                    className="h-20 w-full cursor-pointer rounded-lg object-cover transition-opacity hover:opacity-90"
-                    onClick={() => setPreviewImage(img.data)}
-                  />
-                ))}
+              <ChatMessageImages
+                images={message.images}
+                projectId={selectedProject?.projectId}
+              />
+            )}
+            {message.files && message.files.length > 0 && (
+              <ChatMessageFiles files={message.files} />
+            )}
+            {userCopyContent.trim().length > 0 || (!message.images?.length && !message.files?.length) ? (
+              <div className="group max-w-full rounded-2xl rounded-br-md border border-border/60 bg-muted/60 px-3 py-2 text-foreground shadow-sm dark:bg-gray-800/60 sm:px-4">
+                <div dir="auto" className="break-words font-serif text-sm">
+                  <Markdown
+                    breaks
+                    className="prose prose-sm max-w-none font-serif dark:prose-invert"
+                  >
+                    {message.content}
+                  </Markdown>
+                </div>
+                <div className="mt-1 flex items-center justify-end gap-1 text-xs text-muted-foreground">
+                  {shouldShowUserCopyControl && (
+                    <MessageCopyControl content={userCopyContent} messageType="user" />
+                  )}
+                  <span>{formattedTime}</span>
+                </div>
+              </div>
+            ) : (
+              /* Attachment-only turn: no text bubble, but the timestamp still shows */
+              <div className="flex items-center justify-end gap-1 text-xs text-muted-foreground">
+                <span>{formattedTime}</span>
               </div>
             )}
-            <div className="mt-1 flex items-center justify-end gap-1 text-xs text-blue-100">
-              {shouldShowUserCopyControl && (
-                <MessageCopyControl content={userCopyContent} messageType="user" />
-              )}
-              <span>{formattedTime}</span>
-            </div>
           </div>
           {!isGrouped && (
             <div className="hidden h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm text-white sm:flex">
@@ -280,22 +141,6 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
             <span className="text-xs text-gray-500 dark:text-gray-400">{message.content}</span>
           </div>
         </div>
-      ) : (message as any).isSkillContent ? (
-        /* Skill content collapsed on the left */
-        <div className="w-full">
-          <details className="group">
-            <summary className="flex cursor-pointer items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/50">
-              <svg className="h-3.5 w-3.5 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-              <span className="font-medium">{/claude\.md|memory\.md|CLAUDE\.md|AGENTS\.md/i.test(message.content || '') ? 'System Context' : 'Skill / Parameters'}</span>
-              <span className="text-muted-foreground/60">({Math.round((message.content || '').length / 1024)}KB)</span>
-            </summary>
-            <pre className="mt-2 max-h-60 overflow-auto rounded border border-border/30 bg-muted/20 p-2 font-mono text-xs text-muted-foreground">
-              {(message.content || '').slice(0, 3000)}{(message.content || '').length > 3000 ? '\n... (truncated)' : ''}
-            </pre>
-          </details>
-        </div>
       ) : (
         /* Claude/Error/Tool messages on the left */
         <div className="w-full">
@@ -310,8 +155,8 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
                   🔧
                 </div>
               ) : (
-                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full p-1 text-sm text-white">
-                  <SessionProviderLogo provider={provider} className="h-full w-full" />
+                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full p-1 text-sm text-foreground">
+                  <LLMProviderLogo provider={provider} className="h-full w-full" />
                 </div>
               )}
               <div className="text-sm font-medium text-gray-900 dark:text-white">
@@ -323,9 +168,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
                         ? t('messageTypes.cursor')
                         : provider === 'codex'
                           ? t('messageTypes.codex')
-                          : provider === 'gemini'
-                            ? t('messageTypes.gemini')
-                            : provider === 'opencode'
+                          : provider === 'opencode'
                               ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
                               : t('messageTypes.claude'))}
               </div>
@@ -338,7 +181,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
               <>
                 <div className="flex flex-col">
                   <div className="flex flex-col">
-                    <Markdown className="prose prose-sm max-w-none dark:prose-invert">
+                    <Markdown className="prose prose-sm max-w-none font-serif dark:prose-invert">
                       {String(message.displayText || '')}
                     </Markdown>
                   </div>
@@ -354,7 +197,6 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
                     onFileOpen={onFileOpen}
                     createDiff={createDiff}
                     selectedProject={selectedProject}
-                    autoExpandTools={autoExpandTools}
                     showRawParameters={showRawParameters}
                     rawToolInput={typeof message.toolInput === 'string' ? message.toolInput : undefined}
                     isSubagentContainer={message.isSubagentContainer}
@@ -362,25 +204,15 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
                   />
                 )}
 
-                {/* Tool Result Section */}
-                {message.toolResult && !shouldHideToolResult(message.toolName || 'UnknownTool', message.toolResult) && (
+                {/* Tool Result Section — Bash renders its output inside the command row above. */}
+                {message.toolResult && message.toolName !== 'Bash' && !shouldHideToolResult(message.toolName || 'UnknownTool', message.toolResult) && (
                   message.toolResult.isError ? (
-                    // Error results - red error box with content
-                    <div
-                      id={`tool-result-${message.toolId}`}
-                      className="relative mt-2 scroll-mt-4 rounded border border-red-200/60 bg-red-50/50 p-3 dark:border-red-800/40 dark:bg-red-950/10"
-                    >
-                      <div className="relative mb-2 flex items-center gap-1.5">
-                        <svg className="h-4 w-4 text-red-500 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                        <span className="text-xs font-medium text-red-700 dark:text-red-300">{t('messageTypes.error')}</span>
-                      </div>
-                      <div className="relative text-sm text-red-900 dark:text-red-100">
-                        <Markdown className="prose prose-sm prose-red max-w-none dark:prose-invert">
-                          {String(message.toolResult.content || '')}
-                        </Markdown>
-                      </div>
+                    // Error results — collapsed red row that expands to the content
+                    <div id={`tool-result-${message.toolId}`} className="scroll-mt-4">
+                      <ToolErrorDisplay
+                        label={t('messageTypes.error')}
+                        content={String(message.toolResult.content || '')}
+                      />
                     </div>
                   ) : (
                     // Non-error results - route through ToolRenderer (single source of truth)
@@ -394,7 +226,6 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
                         onFileOpen={onFileOpen}
                         createDiff={createDiff}
                         selectedProject={selectedProject}
-                        autoExpandTools={autoExpandTools}
                       />
                     </div>
                   )
@@ -486,7 +317,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
               <Reasoning defaultOpen={false}>
                 <ReasoningTrigger />
                 <ReasoningContent>
-                  <Markdown className="prose prose-sm prose-gray max-w-none dark:prose-invert">
+                  <Markdown className="prose prose-sm prose-gray max-w-none font-serif dark:prose-invert">
                     {message.content}
                   </Markdown>
                   <div className="mt-3 flex items-center text-[11px]">
@@ -517,33 +348,23 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
                     (trimmedContent.endsWith('}') || trimmedContent.endsWith(']'))) {
                     try {
                       const parsed = JSON.parse(trimmedContent);
-                      // Skip rendering if it's an image content array (API format)
-                      const isImageContent = Array.isArray(parsed) && parsed.some(
-                        (item: any) => item?.type === 'image' || item?.source?.type === 'base64'
-                      );
-                      if (isImageContent) {
-                        return null;
-                      }
                       const formatted = JSON.stringify(parsed, null, 2);
 
                       return (
                         <div className="my-2">
-                          <details className="group overflow-hidden rounded-lg border border-gray-600/30 bg-gray-800 dark:border-gray-700 dark:bg-gray-900">
-                            <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-gray-300">
-                              <svg className="h-3.5 w-3.5 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                              </svg>
-                              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                              </svg>
-                              <span className="font-medium">{t('json.response')}</span>
-                            </summary>
+                          <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
+                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                            </svg>
+                            <span className="font-medium">{t('json.response')}</span>
+                          </div>
+                          <div className="overflow-hidden rounded-lg border border-border bg-muted">
                             <pre className="overflow-x-auto p-4">
-                              <code className="block whitespace-pre font-mono text-sm text-gray-100 dark:text-gray-200">
+                              <code className="block whitespace-pre font-mono text-sm text-foreground">
                                 {formatted}
                               </code>
                             </pre>
-                          </details>
+                          </div>
                         </div>
                       );
                     } catch {
@@ -553,18 +374,9 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
 
                   // Normal rendering for non-JSON content
                   return message.type === 'assistant' ? (
-                    message.isStreaming ? (
-                      <div className="whitespace-pre-wrap break-words">
-                        <StreamingText text={content} active />
-                      </div>
-                    ) : (
-                      <>
-                        <Markdown className="prose prose-sm prose-gray max-w-none dark:prose-invert">
-                          {content}
-                        </Markdown>
-                        <ScreenshotPreviews content={content} />
-                      </>
-                    )
+                    <Markdown className="prose prose-sm prose-gray max-w-none font-serif dark:prose-invert">
+                      {content}
+                    </Markdown>
                   ) : (
                     <div className="whitespace-pre-wrap">
                       {content}
@@ -579,29 +391,13 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, a
                 {shouldShowAssistantCopyControl && (
                   <MessageCopyControl content={assistantCopyContent} messageType="assistant" />
                 )}
+                {shouldShowAssistantCopyControl && (
+                  <MessageSpeakControl content={assistantCopyContent} />
+                )}
                 {!isGrouped && <span>{formattedTime}</span>}
               </div>
             )}
           </div>
-        </div>
-      )}
-      {previewImage && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
-          onClick={() => setPreviewImage(null)}
-        >
-          <img
-            src={previewImage}
-            alt="Preview"
-            className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
-          <button
-            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
-            onClick={() => setPreviewImage(null)}
-          >
-            ✕
-          </button>
         </div>
       )}
     </div>

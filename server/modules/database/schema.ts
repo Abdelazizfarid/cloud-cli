@@ -69,6 +69,23 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 `;
 
+export const NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS notification_channel_endpoints (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    channel TEXT NOT NULL,
+    endpoint_id TEXT NOT NULL,
+    label TEXT,
+    metadata_json TEXT,
+    enabled BOOLEAN DEFAULT 1,
+    last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, channel, endpoint_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+`;
+
 export const PROJECTS_TABLE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS projects (
     project_id TEXT PRIMARY KEY NOT NULL,
@@ -83,9 +100,20 @@ export const SESSIONS_TABLE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT NOT NULL,
     provider TEXT NOT NULL DEFAULT 'claude',
+    -- The session id used by the provider CLI/SDK on disk (JSONL file name,
+    -- store.db folder, sqlite row id, ...). \`session_id\` is the stable
+    -- app-facing id that the frontend uses for the whole session lifetime;
+    -- \`provider_session_id\` is filled in once the provider announces its own
+    -- id mid-run, or equals \`session_id\` for sessions discovered on disk.
+    provider_session_id TEXT,
     custom_name TEXT,
     project_path TEXT,
     jsonl_path TEXT,
+    -- Model and reasoning effort this session runs with. Written when the user
+    -- changes either selection and on every send, so reopening a session
+    -- restores its exact runtime configuration instead of provider defaults.
+    model TEXT,
+    effort TEXT,
     isArchived BOOLEAN DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -108,6 +136,27 @@ CREATE TABLE IF NOT EXISTS app_config (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+`;
+
+/**
+ * Persistent custom-model library used by the Providers module.
+ *
+ * Only user-created models are stored here. Predefined models remain source-
+ * controlled in each provider's `-models.provider.ts` adapter so they can be
+ * updated without migrating application data. `model_id` is unique only within
+ * a provider because different CLIs can accept the same identifier.
+ */
+export const PROVIDER_MODELS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS provider_models (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL CHECK (provider IN ('claude', 'cursor', 'codex', 'opencode')),
+    model_id TEXT NOT NULL,
+    model_name TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(provider, model_id)
 );
 `;
 
@@ -138,6 +187,10 @@ ${VAPID_KEYS_TABLE_SCHEMA_SQL}
 ${PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON push_subscriptions(user_id);
 
+${NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL}
+CREATE INDEX IF NOT EXISTS idx_notification_channel_endpoints_user_channel ON notification_channel_endpoints(user_id, channel);
+CREATE INDEX IF NOT EXISTS idx_notification_channel_endpoints_enabled ON notification_channel_endpoints(enabled);
+
 ${PROJECTS_TABLE_SCHEMA_SQL}
 -- NOTE: These indexes are created in migrations after legacy table-shape repairs.
 -- Creating them here can fail on upgraded installs where projects lacks those columns.
@@ -150,4 +203,8 @@ CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id);
 ${LAST_SCANNED_AT_SQL}
 
 ${APP_CONFIG_TABLE_SCHEMA_SQL}
+
+${PROVIDER_MODELS_TABLE_SCHEMA_SQL}
+CREATE INDEX IF NOT EXISTS idx_provider_models_provider_order
+ON provider_models(provider, sort_order, id);
 `;

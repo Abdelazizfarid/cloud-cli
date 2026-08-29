@@ -1,239 +1,149 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-const GEMINI_API_KEY = (import.meta.env.VITE_GEMINI_API_KEY || '').trim();
-const GEMINI_MODEL = (import.meta.env.VITE_GEMINI_TRANSCRIBE_MODEL || 'gemini-2.5-flash').trim();
-const GEMINI_URL = GEMINI_API_KEY
-  ? `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`
-  : null;
-const HIGH_DEMAND_RETRY_LIMIT = 5;
-const HIGH_DEMAND_RETRY_DELAY_MS = 5000;
+import { transcribeVoice } from '../../../lib/voiceApi';
 
-const RECORDING_MIME_CANDIDATES = [
+// Mobile-safe recording: iOS Safari 18.4+ supports webm/opus; older iOS needs mp4.
+const MIME_CANDIDATES = [
   'audio/webm;codecs=opus',
   'audio/webm',
+  'audio/mp4',
   'audio/ogg;codecs=opus',
+  'audio/ogg',
 ];
 
-export function useVoiceInput(onTranscription: (text: string) => void) {
-  const [isRecording, setIsRecording] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const mimeTypeRef = useRef('audio/webm');
-  const startedAtRef = useRef(0);
-
-  const startRecording = useCallback(async () => {
+function pickMime(): string {
+  for (const t of MIME_CANDIDATES) {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) return t;
+    } catch {
+      /* isTypeSupported can throw on some iOS versions */
+    }
+  }
+  return '';
+}
+
+export type VoiceInputState = 'idle' | 'recording' | 'transcribing';
+
+/**
+ * Push-to-talk dictation. Records the mic, uploads to /api/voice/transcribe
+ * (an OpenAI-compatible speech-to-text backend via the Express proxy), and
+ * returns the transcript through onTranscript.
+ */
+export function useVoiceInput(
+  onTranscript: (text: string, send?: boolean) => void,
+  onError?: (msg: string) => void,
+) {
+  const [state, setState] = useState<VoiceInputState>('idle');
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const cancelledRef = useRef(false);
+  const startingRef = useRef(false);
+  // Whether the in-progress stop should auto-send the transcript (vs just fill the box).
+  const sendRef = useRef(false);
+
+  const stopTracks = () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  };
+
+  // Stop the mic if the component unmounts mid-recording.
+  useEffect(() => {
+    cancelledRef.current = false;
+    return () => {
+      cancelledRef.current = true;
+      startingRef.current = false;
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      recorderRef.current = null;
+    };
+  }, []);
+
+  const start = useCallback(async () => {
+    if (startingRef.current || (recorderRef.current && recorderRef.current.state !== 'inactive')) return;
+    startingRef.current = true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
+      if (cancelledRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       streamRef.current = stream;
-
-      const supportedMimeType = RECORDING_MIME_CANDIDATES.find((mimeType) => (
-        typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(mimeType)
-      ));
-
-      const mediaRecorder = supportedMimeType
-        ? new MediaRecorder(stream, { mimeType: supportedMimeType })
-        : new MediaRecorder(stream);
-
-      mediaRecorderRef.current = mediaRecorder;
+      const mimeType = pickMime();
+      const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      recorderRef.current = rec;
       chunksRef.current = [];
-      mimeTypeRef.current = mediaRecorder.mimeType || supportedMimeType || 'audio/webm';
-      startedAtRef.current = Date.now();
 
-      mediaRecorder.ondataavailable = (e) => {
+      rec.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
 
-      mediaRecorder.onstop = async () => {
-        streamRef.current?.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
-
-        const recordedMs = Date.now() - startedAtRef.current;
-        const totalBytes = chunksRef.current.reduce((total, chunk) => total + chunk.size, 0);
-        const blob = new Blob(chunksRef.current, { type: mimeTypeRef.current });
-        chunksRef.current = [];
-
-        if (recordedMs < 450 || totalBytes < 1024) {
-          alert('Recording is too short. Please hold the mic button and speak for at least one second.');
+      rec.onstop = async () => {
+        stopTracks();
+        if (cancelledRef.current) return;
+        // Capture and clear the send intent for this stop before any async work.
+        const shouldSend = sendRef.current;
+        sendRef.current = false;
+        const type = rec.mimeType || 'audio/webm';
+        const blob = new Blob(chunksRef.current, { type });
+        if (blob.size < 800) {
+          setState('idle');
+          onError?.('Recording too short');
           return;
         }
-
-        await processAudio(blob, mimeTypeRef.current);
+        setState('transcribing');
+        try {
+          const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
+          const res = await transcribeVoice(blob, `recording.${ext}`);
+          if (!res.ok) throw new Error(`transcribe ${res.status}`);
+          const data = await res.json();
+          if (cancelledRef.current) return;
+          const text = String(data?.text || '').trim();
+          if (text) onTranscript(text, shouldSend);
+          else onError?.('No speech detected');
+        } catch (e) {
+          if (!cancelledRef.current) {
+            onError?.(`Transcription failed: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        } finally {
+          if (!cancelledRef.current) setState('idle');
+        }
       };
 
-      mediaRecorder.start(250);
-      setIsRecording(true);
-    } catch (error) {
-      console.error('Microphone access failed', error);
-      alert('Microphone access denied');
-    }
-  }, []);
-
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
-  }, []);
-
-  const processAudio = async (blob: Blob, mimeType: string) => {
-    setIsProcessing(true);
-    try {
-      if (!GEMINI_URL) {
-        throw new Error('Voice transcription is not configured. Set VITE_GEMINI_API_KEY.');
-      }
-
-      const base64 = await blobToBase64(blob);
-      const body = JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                inlineData: {
-                  mimeType,
-                  data: base64,
-                },
-              },
-              {
-                text: 'Transcribe this audio and output English text only. If speech is not English, translate it to English. Never include Arabic or bilingual output. Return only the final transcript sentence(s) with no labels or prefixes.',
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0,
-        },
-      });
-
-      for (let retryAttempt = 0; retryAttempt <= HIGH_DEMAND_RETRY_LIMIT; retryAttempt += 1) {
-        const res = await fetch(GEMINI_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body,
-        });
-
-        const data = await res.json().catch(() => null);
-        if (!res.ok) {
-          const message = data?.error?.message || `HTTP ${res.status}`;
-          if (isHighDemandError(message) && retryAttempt < HIGH_DEMAND_RETRY_LIMIT) {
-            await delay(HIGH_DEMAND_RETRY_DELAY_MS);
-            continue;
-          }
-
-          throw new Error(message);
-        }
-
-        const text = extractGeminiText(data);
-        if (text) {
-          onTranscription(cleanTranscript(text));
-          return;
-        }
-
-        console.error('Gemini transcription response:', data);
-        throw new Error('No transcription text was returned by Gemini.');
-      }
-    } catch (error) {
-      console.error('Audio transcription failed', error);
-      const reason = error instanceof Error ? error.message : 'Unknown error';
-      alert(`Transcription failed: ${reason}`);
+      rec.start();
+      setState('recording');
+    } catch (e) {
+      recorderRef.current = null;
+      stopTracks();
+      if (cancelledRef.current) return;
+      const err = e as { name?: string; message?: string };
+      let msg = `Mic error: ${err?.message || e}`;
+      if (err?.name === 'NotAllowedError') msg = 'Microphone access denied.';
+      else if (err?.name === 'NotFoundError') msg = 'No microphone found.';
+      onError?.(msg);
+      setState('idle');
     } finally {
-      setIsProcessing(false);
+      startingRef.current = false;
     }
-  };
+  }, [onTranscript, onError]);
 
-  const toggleRecording = useCallback(() => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      if (!isProcessing) {
-        startRecording();
-      }
+  // Stop recording. Pass { send: true } to auto-send the transcript once it's ready.
+  // Guard on the recorder's own state (not React state) so a double tap, or the mic
+  // and Send buttons both firing, can't call stop() on an already-inactive recorder.
+  const stop = useCallback((opts?: { send?: boolean }) => {
+    const rec = recorderRef.current;
+    if (rec && rec.state !== 'inactive') {
+      sendRef.current = opts?.send ?? false;
+      rec.stop();
     }
-  }, [isProcessing, isRecording, startRecording, stopRecording]);
-
-  useEffect(() => () => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
   }, []);
 
-  return { isRecording, isProcessing, toggleRecording };
-}
+  const toggle = useCallback(() => {
+    if (state === 'recording') stop();
+    else if (state === 'idle') start();
+  }, [state, start, stop]);
 
-function extractGeminiText(data: unknown): string {
-  if (!data || typeof data !== 'object') {
-    return '';
-  }
-
-  const parts = (data as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> })
-    .candidates?.[0]?.content?.parts;
-
-  if (!Array.isArray(parts)) {
-    return '';
-  }
-
-  return parts
-    .map((part) => (typeof part?.text === 'string' ? part.text : ''))
-    .join('\n')
-    .trim();
-}
-
-function cleanTranscript(text: string): string {
-  const cleaned = text
-    .replace(/^transcript:\s*/i, '')
-    .replace(/^transcription:\s*/i, '')
-    .trim();
-
-  const hasArabic = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(cleaned);
-  const hasLatin = /[A-Za-z]/.test(cleaned);
-
-  if (hasArabic && hasLatin) {
-    const lines = cleaned
-      .split(/\r?\n+/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-
-    const englishOnlyLines = lines.filter(
-      (line) => /[A-Za-z]/.test(line) && !/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(line),
-    );
-
-    if (englishOnlyLines.length > 0) {
-      return englishOnlyLines.join(' ').replace(/\s+/g, ' ').trim();
-    }
-
-    const strippedArabic = cleaned
-      .replace(/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    if (/[A-Za-z]/.test(strippedArabic)) {
-      return strippedArabic;
-    }
-  }
-
-  return cleaned;
-}
-
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = reader.result as string;
-      resolve(result.split(',')[1]);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
-function isHighDemandError(message: string): boolean {
-  const normalizedMessage = message.toLowerCase();
-  return normalizedMessage.includes('currently experiencing high demand')
-    || normalizedMessage.includes('spikes in demand are usually temporary');
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+  return { state, toggle, stop };
 }

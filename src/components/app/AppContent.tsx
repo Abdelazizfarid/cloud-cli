@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
@@ -10,6 +10,7 @@ import NewTabPicker from '../tab-bar/NewTabPicker';
 import Dashboard from '../dashboard/Dashboard';
 import SplitView from '../split-view/SplitView';
 import SyncPanel from '../sync/SyncPanel';
+import { QuickSettingsPanel } from '../quick-settings-panel';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { PaletteOpsProvider, usePaletteOpsRegister } from '../../contexts/PaletteOpsContext';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
@@ -21,6 +22,33 @@ import { api } from '../../utils/api';
 
 const DEFAULT_AGENT_CONTROL_PLANE_URL = 'https://agents.hooktrack.life/sessions/';
 const DEFAULT_AGENT_CONTROL_PLANE_PATH = '/sessions/';
+import { useQueuedMessageAutoSend } from '../../hooks/useQueuedMessageAutoSend';
+
+type RunningSessionApiItem = {
+  sessionId?: unknown;
+  startedAt?: unknown;
+  statusText?: unknown;
+  canInterrupt?: unknown;
+};
+
+type RunningSessionsApiPayload = {
+  data?: {
+    sessions?: RunningSessionApiItem[];
+  };
+};
+
+const parseStartedAt = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
 
 export default function AppContent() {
   return (
@@ -39,16 +67,13 @@ function AppContentInner() {
   const { isMobile } = useDeviceSettings({ trackPWA: false });
   const { preferences } = useUiPreferences();
   const sidebarCollapsed = !isMobile && !preferences.sidebarVisible;
-  const { ws, sendMessage, latestMessage, isConnected } = useWebSocket();
-  const wasConnectedRef = useRef(false);
+  const { ws, sendMessage, subscribe } = useWebSocket();
 
   const {
-    activeSessions,
     processingSessions,
-    markSessionAsActive,
-    markSessionAsInactive,
-    markSessionAsProcessing,
-    markSessionAsNotProcessing,
+    markSessionProcessing,
+    markSessionIdle,
+    syncProcessingSessions,
   } = useSessionProtection();
 
   const {
@@ -63,9 +88,9 @@ function AppContentInner() {
     setActiveTab,
     setSidebarOpen,
     setIsInputFocused,
-    setShowSettings,
     openSettings,
     refreshProjectsSilently,
+    registerOptimisticSession,
     sidebarSharedProps,
     handleNewSession,
     handleProjectSelect,
@@ -74,9 +99,20 @@ function AppContentInner() {
   } = useProjectsState({
     sessionId,
     navigate,
-    latestMessage,
+    subscribe,
     isMobile,
-    activeSessions,
+    activeSessions: processingSessions,
+  });
+
+  // Queued messages for sessions that finish while another session (or none)
+  // is being viewed are sent from here; the viewed session's composer handles
+  // its own queue.
+  useQueuedMessageAutoSend({
+    processingSessions,
+    activeSessionId: selectedSession?.id ?? sessionId ?? null,
+    ws,
+    sendMessage,
+    markSessionProcessing,
   });
 
   const {
@@ -135,13 +171,7 @@ function AppContentInner() {
     if (project) {
       handleProjectSelect(project);
       if (tab.sessionId) {
-        const allSessions = [
-          ...(project.sessions ?? []),
-          ...(project.cursorSessions ?? []),
-          ...(project.codexSessions ?? []),
-          ...(project.geminiSessions ?? []),
-          ...(project.opencodeSessions ?? []),
-        ];
+        const allSessions = project.sessions ?? [];
         const session = allSessions.find((s) => s.id === tab.sessionId);
         if (session) handleSessionSelect(session);
       }
@@ -233,29 +263,15 @@ function AppContentInner() {
 
   // Refresh projects when active sessions change (new session created)
   useEffect(() => {
-    if (activeSessions.size > 0) {
+    if (processingSessions.size > 0) {
       const timer = setTimeout(() => void refreshProjectsSilently(), 1000);
       return () => clearTimeout(timer);
     }
-  }, [activeSessions.size, refreshProjectsSilently]);
+  }, [processingSessions.size, refreshProjectsSilently]);
 
-  // Permission recovery: query pending permissions on WebSocket reconnect or session change
-  useEffect(() => {
-    const isReconnect = isConnected && !wasConnectedRef.current;
-
-    if (isReconnect) {
-      wasConnectedRef.current = true;
-    } else if (!isConnected) {
-      wasConnectedRef.current = false;
-    }
-
-    if (isConnected && selectedSession?.id) {
-      sendMessage({
-        type: 'get-pending-permissions',
-        sessionId: selectedSession.id
-      });
-    }
-  }, [isConnected, selectedSession?.id, sendMessage]);
+  // Pending tool permissions are recovered through the `chat.subscribe` flow:
+  // the `chat_subscribed` ack carries them on session open and on reconnect,
+  // so no separate permission-recovery message is needed here.
 
   // Adjust the app container to stay above the virtual keyboard on iOS Safari.
   // On Chrome for Android the layout viewport already shrinks when the keyboard opens,
@@ -324,9 +340,9 @@ function AppContentInner() {
           {!sidebarCollapsed && (
             <div
               onMouseDown={handleMouseDown}
-              className="relative z-10 h-full w-1 flex-shrink-0 cursor-col-resize group"
+              className="group relative z-10 h-full w-1 flex-shrink-0 cursor-col-resize"
             >
-              <div className="absolute inset-y-0 -left-0.5 w-2 group-hover:bg-primary/20 group-active:bg-primary/30 transition-colors duration-150" />
+              <div className="absolute inset-y-0 -left-0.5 w-2 transition-colors duration-150 group-hover:bg-primary/20 group-active:bg-primary/30" />
             </div>
           )}
         </>
@@ -376,7 +392,7 @@ function AppContentInner() {
             onToggleSplit={() => { setSplitMode((prev) => !prev); setForceDashboard(false); }}
           />
         )}
-        <div className="relative flex-1 min-h-0">
+        <div className="relative min-h-0 flex-1">
           {showNewTabPicker && (
             <NewTabPicker
               projects={projects}
@@ -414,13 +430,13 @@ function AppContentInner() {
                 key={String(agentControlPlaneCacheBust)}
                 title="Agent Control Plane"
                 src={agentControlPlaneUrl}
-                className="min-h-0 flex-1 w-full border-0"
+                className="min-h-0 w-full flex-1 border-0"
               />
             </div>
           ) : (forceDashboard || isHomeRoute || (!selectedSession && !isLoadingProjects && activeTab !== 'chat')) && projects.length > 0 && !splitMode ? (
               <Dashboard
                 projects={projects}
-                activeSessions={activeSessions}
+                activeSessions={processingSessions}
                 processingSessions={processingSessions}
                 onProjectSelect={(project) => { setForceDashboard(false); handleProjectSelect(project); }}
                 onSessionSelect={(session) => { setForceDashboard(false); handleSessionSelect(session); }}
@@ -440,38 +456,37 @@ function AppContentInner() {
                 projects={projects}
                 ws={ws}
                 sendMessage={sendMessage}
-                latestMessage={latestMessage}
                 processingSessions={processingSessions}
                 onFocusTab={switchTab}
-                onSessionActive={markSessionAsActive}
-                onSessionInactive={markSessionAsInactive}
-                onSessionProcessing={markSessionAsProcessing}
-                onSessionNotProcessing={markSessionAsNotProcessing}
+                onSessionProcessing={markSessionProcessing}
+                onSessionIdle={markSessionIdle}
               />
             ) : (
               <MainContent
-                selectedProject={selectedProject}
-                selectedSession={selectedSession}
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                ws={ws}
-                sendMessage={sendMessage}
-                latestMessage={latestMessage}
-                isMobile={isMobile}
-                onMenuClick={() => setSidebarOpen(true)}
-                isLoading={isLoadingProjects}
-                onInputFocusChange={setIsInputFocused}
-                onSessionActive={markSessionAsActive}
-                onSessionInactive={markSessionAsInactive}
-                onSessionProcessing={markSessionAsProcessing}
-                onSessionNotProcessing={markSessionAsNotProcessing}
-                processingSessions={processingSessions}
-                onNavigateToSession={(targetSessionId: string, options) =>
-                  navigate(`/session/${targetSessionId}`, { replace: Boolean(options?.replace) })
-                }
-                onShowSettings={() => setShowSettings(true)}
-                externalMessageUpdate={externalMessageUpdate}
-                newSessionTrigger={newSessionTrigger}
+              selectedProject={selectedProject}
+              selectedSession={selectedSession}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              ws={ws}
+              sendMessage={sendMessage}
+              isMobile={isMobile}
+              onMenuClick={() => setSidebarOpen(true)}
+              isLoading={isLoadingProjects}
+              onInputFocusChange={setIsInputFocused}
+              onSessionProcessing={markSessionProcessing}
+              onSessionIdle={markSessionIdle}
+              processingSessions={processingSessions}
+              onNavigateToSession={(targetSessionId: string, options) =>
+              navigate(`/session/${targetSessionId}`, { replace: Boolean(options?.replace) })
+              }
+              onSessionEstablished={(targetSessionId, context) =>
+              registerOptimisticSession({ sessionId: targetSessionId, ...context })
+              }
+              onShowSettings={openSettings}
+              externalMessageUpdate={externalMessageUpdate}
+              newSessionTrigger={newSessionTrigger}
+              onProjectSelect={handleProjectSelect}
+              onProjectsRefresh={() => void refreshProjectsSilently()}
               />
             )}
         </div>
@@ -485,6 +500,7 @@ function AppContentInner() {
       />
 
       {showSyncPanel && <SyncPanel onClose={() => setShowSyncPanel(false)} />}
+      <QuickSettingsPanel />
     </div>
   );
 }

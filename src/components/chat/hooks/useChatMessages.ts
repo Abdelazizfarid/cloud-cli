@@ -5,12 +5,54 @@
 
 import type { NormalizedMessage } from '../../../stores/useSessionStore';
 import type { ChatMessage, SubagentChildTool } from '../types/types';
-import { decodeHtmlEntities, unescapeWithMathProtection, formatUsageLimitText } from '../utils/chatFormatting';
+import { formatUsageLimitText } from '../utils/chatFormatting';
 
 function formatToolResultContent(content: unknown): string {
   const text = typeof content === 'string' ? content : JSON.stringify(content);
   const toolUseErrorMatch = /^<tool_use_error>([\s\S]*)<\/tool_use_error>$/.exec(text.trim());
   return toolUseErrorMatch ? toolUseErrorMatch[1] : text;
+}
+
+type ParsedTaskNotification = {
+  status: string;
+  summary: string;
+  result: string;
+};
+
+/**
+ * Parses a background-agent `<task-notification>` block.
+ *
+ * The harness injects these as user-role messages when a background task stops.
+ * Newer notifications carry extra fields (`<tool-use-id>`, `<note>`, `<usage>`,
+ * and a `<result>` markdown payload) that the previous single-shot regex could
+ * not match, so the whole raw XML block leaked through as plain user text.
+ * Fields are extracted independently so the block renders as an assistant
+ * notification plus, when present, the agent's markdown result.
+ */
+function parseTaskNotification(content: string): ParsedTaskNotification | null {
+  if (!content.trimStart().startsWith('<task-notification>')) {
+    return null;
+  }
+
+  const statusMatch = /<status>([\s\S]*?)<\/status>/.exec(content);
+  const summaryMatch = /<summary>([\s\S]*?)<\/summary>/.exec(content);
+
+  let result = '';
+  const resultOpen = content.indexOf('<result>');
+  if (resultOpen !== -1) {
+    const afterOpen = content.slice(resultOpen + '<result>'.length);
+    const closeIndex = afterOpen.indexOf('</result>');
+    result =
+      closeIndex === -1
+        ? afterOpen.replace(/<\/task-notification>\s*$/, '').trim()
+        : afterOpen.slice(0, closeIndex).trim();
+  }
+
+  return {
+    status: statusMatch?.[1]?.trim() || 'completed',
+    summary: summaryMatch?.[1]?.trim() || 'Background task finished',
+    result,
+  };
 }
 
 /**
@@ -39,7 +81,6 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
 
   for (const msg of messages) {
     const sharedMetadata = {
-      id: msg.id,
       displayText: msg.displayText,
       commandName: msg.commandName,
       commandMessage: msg.commandMessage,
@@ -52,93 +93,44 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
     switch (msg.kind) {
       case 'text': {
         const content = msg.content || '';
-        if (!content.trim()) continue;
+        const images = Array.isArray(msg.images) && msg.images.length > 0 ? msg.images : undefined;
+        const files = Array.isArray(msg.files) && msg.files.length > 0 ? msg.files : undefined;
+        if (!content.trim() && !images && !files) continue;
 
         if (msg.role === 'user') {
           // Parse task notifications
-          const taskNotifRegex = /<task-notification>\s*<task-id>[^<]*<\/task-id>\s*<output-file>[^<]*<\/output-file>\s*<status>([^<]*)<\/status>\s*<summary>([^<]*)<\/summary>\s*<\/task-notification>/g;
-          const taskNotifMatch = taskNotifRegex.exec(content);
-          if (taskNotifMatch) {
+          const taskNotif = parseTaskNotification(content);
+          if (taskNotif) {
             converted.push({
               type: 'assistant',
-              content: taskNotifMatch[2]?.trim() || 'Background task finished',
+              content: taskNotif.summary,
               timestamp: msg.timestamp,
               isTaskNotification: true,
-              taskStatus: taskNotifMatch[1]?.trim() || 'completed',
+              taskStatus: taskNotif.status,
               ...sharedMetadata,
             });
-          } else {
-            // Detect skill/system injected messages (long content with skill markers)
-            // or context file injections (claude.md, memory.md, etc.)
-            const isSkillContent = content.length > 500 && (
-              content.includes('Base directory for this skill:') ||
-              content.includes('AUTO-GENERATED from SKILL') ||
-              content.includes('## Preamble') ||
-              content.includes('.claude/skills/') ||
-              content.includes('_PROACTIVE=') ||
-              content.includes('gstack-config') ||
-              content.includes('claude.md') ||
-              content.includes('memory.md') ||
-              content.includes('CLAUDE.md') ||
-              content.includes('AGENTS.md') ||
-              /^#\s+(Project|Context|Memory|Instructions)/m.test(content)
-            );
-            if (isSkillContent) {
+            // Render the agent's result as a normal assistant message so its
+            // markdown displays correctly instead of leaking raw XML.
+            if (taskNotif.result) {
               converted.push({
                 type: 'assistant',
-                content,
-                timestamp: msg.timestamp,
-                isSkillContent: true,
-                ...sharedMetadata,
-              });
-            } else {
-              // Check if content is a JSON array with image content blocks (API format)
-              let userText = content;
-              let parsedImages: { data: string; name: string }[] | undefined = msg.images?.map(d => ({ data: d, name: '' }));
-              
-              // Strip server-appended image paths section
-              const pathIdx = userText.indexOf('[Images provided at the following paths:]');
-              if (pathIdx > 0) {
-                userText = userText.slice(0, pathIdx).trim();
-              }
-
-              const trimmed = content.trim();
-              if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-                try {
-                  const parsed = JSON.parse(trimmed);
-                  if (Array.isArray(parsed) && parsed.some((b: any) => b?.type === 'image' || b?.type === 'text')) {
-                    userText = parsed
-                      .filter((b: any) => b?.type === 'text')
-                      .map((b: any) => b.text || '')
-                      .join('\n');
-                    const imgBlocks = parsed.filter((b: any) => b?.type === 'image' && b?.source?.data);
-                    if (imgBlocks.length > 0) {
-                      parsedImages = imgBlocks.map((b: any) => ({
-                        data: b.source.media_type
-                          ? `data:${b.source.media_type};base64,${b.source.data}`
-                          : `data:image/png;base64,${b.source.data}`,
-                        name: '',
-                      }));
-                    }
-                  }
-                } catch {
-                  // Not valid JSON, use content as-is
-                }
-              }
-
-              converted.push({
-                type: 'user',
-                content: unescapeWithMathProtection(decodeHtmlEntities(userText)),
-                images: parsedImages,
+                content: formatUsageLimitText(taskNotif.result),
                 timestamp: msg.timestamp,
                 ...sharedMetadata,
               });
             }
+          } else {
+            converted.push({
+              type: 'user',
+              content,
+              timestamp: msg.timestamp,
+              images,
+              files,
+              ...sharedMetadata,
+            });
           }
         } else {
-          let text = decodeHtmlEntities(content);
-          text = unescapeWithMathProtection(text);
-          text = formatUsageLimitText(text);
+          const text = formatUsageLimitText(content);
           converted.push({
             type: 'assistant',
             content: text,
@@ -201,7 +193,7 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
         if (msg.content?.trim()) {
           converted.push({
             type: 'assistant',
-            content: unescapeWithMathProtection(msg.content),
+            content: msg.content,
             timestamp: msg.timestamp,
             isThinking: true,
             ...sharedMetadata,
@@ -265,6 +257,15 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
       // tool_result is handled via attachment to tool_use above
       case 'tool_result': {
         if (msg.toolId && toolUseIds.has(msg.toolId)) {
+          break;
+        }
+
+        // A result with a toolId but no matching tool_use in the loaded set is
+        // almost always a tool_use/tool_result pair split across a pagination
+        // boundary (older page not loaded yet). Rendering its raw content here
+        // produces an unstyled dump that "fixes itself" once the older page
+        // loads; skip it and let it attach to its tool_use when that arrives.
+        if (msg.toolId) {
           break;
         }
 

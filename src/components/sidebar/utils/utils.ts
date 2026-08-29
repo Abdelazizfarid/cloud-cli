@@ -1,7 +1,24 @@
 import type { TFunction } from 'i18next';
 
-import type { Project } from '../../../types/app';
+import type { LLMProvider, Project, ProjectSession } from '../../../types/app';
 import type { ProjectSortOrder, SettingsProject, SessionViewModel, SessionWithProvider } from '../types/types';
+
+export const formatCompactAge = (
+  dateString: string | null | undefined,
+  currentTime: Date,
+): string => {
+  if (!dateString) return '';
+
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const minutes = Math.floor(Math.max(0, currentTime.getTime() - date.getTime()) / 60000);
+  if (minutes < 1) return '<1m';
+  if (minutes < 60) return `${minutes}m`;
+
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours}hr` : `${Math.floor(hours / 24)}d`;
+};
 
 export const readProjectSortOrder = (): ProjectSortOrder => {
   try {
@@ -61,6 +78,13 @@ const getUpdatedTimestamp = (session: SessionWithProvider): string => {
   return String(session.lastActivity || '');
 };
 
+const getSessionProvider = (session: ProjectSession): LLMProvider => {
+  const provider = session.__provider ?? session.provider;
+  return typeof provider === 'string' && provider.trim()
+    ? provider as LLMProvider
+    : 'claude';
+};
+
 export const getSessionDate = (session: SessionWithProvider): Date => {
   return new Date(getUpdatedTimestamp(session) || getCreatedTimestamp(session) || 0);
 };
@@ -82,10 +106,6 @@ export const createSessionViewModel = (
   const diffInMinutes = Math.floor((currentTime.getTime() - sessionDate.getTime()) / (1000 * 60));
 
   return {
-    isCursorSession: session.__provider === 'cursor',
-    isCodexSession: session.__provider === 'codex',
-    isGeminiSession: session.__provider === 'gemini',
-    isOpenCodeSession: session.__provider === 'opencode',
     isActive: diffInMinutes < 10,
     sessionName: getSessionName(session, t),
     sessionTime: getSessionTime(session),
@@ -94,32 +114,10 @@ export const createSessionViewModel = (
 };
 
 export const getAllSessions = (project: Project): SessionWithProvider[] => {
-  const claudeSessions = [...(project.sessions || [])].map((session) => ({
+  return (project.sessions || []).map((session) => ({
     ...session,
-    __provider: 'claude' as const,
-  }));
-
-  const cursorSessions = (project.cursorSessions || []).map((session) => ({
-    ...session,
-    __provider: 'cursor' as const,
-  }));
-
-  const codexSessions = (project.codexSessions || []).map((session) => ({
-    ...session,
-    __provider: 'codex' as const,
-  }));
-
-  const geminiSessions = (project.geminiSessions || []).map((session) => ({
-    ...session,
-    __provider: 'gemini' as const,
-  }));
-
-  const opencodeSessions = (project.opencodeSessions || []).map((session) => ({
-    ...session,
-    __provider: 'opencode' as const,
-  }));
-
-  return [...claudeSessions, ...cursorSessions, ...codexSessions, ...geminiSessions, ...opencodeSessions].sort(
+    __provider: getSessionProvider(session),
+  })).sort(
     (a, b) => getSessionDate(b).getTime() - getSessionDate(a).getTime(),
   );
 };

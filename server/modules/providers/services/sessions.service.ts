@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { chatRunRegistry } from '@/modules/websocket/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import type {
   FetchHistoryOptions,
@@ -10,6 +12,13 @@ import type {
   NormalizedMessage,
 } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
+
+type CreateAppSessionResult = {
+  sessionId: string;
+  provider: LLMProvider;
+  projectPath: string;
+  sessionName: string;
+};
 
 type ArchivedSessionListItem = {
   sessionId: string;
@@ -23,6 +32,43 @@ type ArchivedSessionListItem = {
   lastActivity: string | null;
   isProjectArchived: boolean;
 };
+
+type RecentSessionListItem = Pick<
+  ArchivedSessionListItem,
+  'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity'
+>;
+
+type RecentSessionsPage = {
+  conversations: RecentSessionListItem[];
+  total: number;
+  hasMore: boolean;
+};
+
+type SessionDetails = {
+  /** Canonical app-facing session id (may differ from the looked-up id when a provider-native id was given). */
+  sessionId: string;
+  provider: LLMProvider;
+  summary: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  lastActivity: string | null;
+  isArchived: boolean;
+  project: {
+    projectId: string;
+    path: string;
+    fullPath: string;
+    displayName: string;
+    isStarred: boolean;
+    isArchived: boolean;
+  } | null;
+};
+
+const MAX_CLOUDCLI_SESSION_NAME_WORDS = 4;
+
+function buildCloudCliSessionName(initialMessage: string): string {
+  const words = initialMessage.trim().split(/\s+/).filter(Boolean);
+  return words.slice(0, MAX_CLOUDCLI_SESSION_NAME_WORDS).join(' ') || 'Untitled Session';
+}
 
 /**
  * Removes one file if it exists.
@@ -78,6 +124,72 @@ export const sessionsService = {
   },
 
   /**
+   * Returns app-facing ids for provider runs that are currently processing.
+   *
+   * This is intentionally status-only: callers that only need sidebar activity
+   * indicators should not attach to chat streams or request replayed messages.
+   */
+  listRunningSessions(): Array<{
+    sessionId: string;
+    provider: LLMProvider;
+    startedAt: number;
+    lastSeq: number;
+  }> {
+    return chatRunRegistry.listRunningRuns();
+  },
+
+  /**
+   * Returns the active conversation feed in true global activity order.
+   */
+  listRecentSessions(limit: number, offset: number): RecentSessionsPage {
+    const page = sessionsDb.getRecentSessionsPage(limit, offset);
+    const projectCache = new Map<string, ReturnType<typeof projectsDb.getProjectPath>>();
+    const conversations = page.sessions.map((session) => {
+      const projectPath = session.project_path?.trim() ? session.project_path : null;
+      let project = null;
+
+      if (projectPath) {
+        if (!projectCache.has(projectPath)) {
+          projectCache.set(projectPath, projectsDb.getProjectPath(projectPath));
+        }
+        project = projectCache.get(projectPath) ?? null;
+      }
+
+      return {
+        sessionId: session.session_id,
+        provider: session.provider as LLMProvider,
+        projectId: project?.project_id ?? null,
+        projectDisplayName: resolveProjectDisplayName(projectPath, project?.custom_project_name),
+        sessionTitle: session.custom_name?.trim() || session.session_id,
+        lastActivity: session.updated_at ?? session.created_at ?? null,
+      };
+    });
+
+    return {
+      conversations,
+      total: page.total,
+      hasMore: offset + conversations.length < page.total,
+    };
+  },
+
+  /**
+   * Resolves the provider-native session id a runtime needs for resume.
+   *
+   * Callers hand provider runtimes the stable app session id; the provider
+   * CLIs/SDKs only understand their own native id, which lives on the session
+   * row. Ids without a row are assumed to be provider-native already (direct
+   * API callers that reference sessions the watcher has not indexed yet).
+   */
+  resolveProviderSessionId(sessionId: string | null | undefined): string | null {
+    if (!sessionId) {
+      return null;
+    }
+
+    const session = sessionsDb.getSessionById(sessionId);
+    return session ? session.provider_session_id : sessionId;
+  },
+
+  /**
    * Normalizes one provider-native event into frontend session message events.
    */
   normalizeMessage(
@@ -89,12 +201,74 @@ export const sessionsService = {
   },
 
   /**
-   * Fetches persisted history by session id.
+   * Allocates a stable app-facing session id before any provider run happens.
+   *
+   * This is the entry point of the session gateway: the frontend calls this
+   * (via `POST /api/providers/sessions`) when the user starts a brand-new
+   * chat, navigates to the returned id immediately, and the id never changes
+   * for the lifetime of the conversation. The provider-native id is mapped to
+   * this row later, when the provider runtime announces it mid-run. Its title
+   * comes directly from the first visible CloudCLI message and is limited to
+   * four whole words before any provider-owned storage exists.
+   */
+  createAppSession(
+    provider: LLMProvider,
+    projectPath: string,
+    initialMessage: string,
+  ): CreateAppSessionResult {
+    const normalizedProjectPath = projectPath.trim();
+    if (!normalizedProjectPath) {
+      throw new AppError('projectPath is required.', {
+        code: 'PROJECT_PATH_REQUIRED',
+        statusCode: 400,
+      });
+    }
+
+    const sessionId = randomUUID();
+    const sessionName = buildCloudCliSessionName(initialMessage);
+    sessionsDb.createAppSession(sessionId, provider, normalizedProjectPath, sessionName);
+
+    return {
+      sessionId,
+      provider,
+      projectPath: normalizedProjectPath,
+      sessionName,
+    };
+  },
+
+  /**
+   * Resolves the provider-native id only for an explicit user copy action.
+   * Normal session payloads continue to expose only the stable app id.
+   */
+  getProviderSessionId(sessionId: string): string {
+    const session = sessionsDb.getSessionById(sessionId);
+    if (!session) {
+      throw new AppError(`Session "${sessionId}" was not found.`, {
+        code: 'SESSION_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+
+    if (!session.provider_session_id) {
+      throw new AppError('This session ID is not available yet.', {
+        code: 'PROVIDER_SESSION_ID_NOT_AVAILABLE',
+        statusCode: 409,
+      });
+    }
+
+    return session.provider_session_id;
+  },
+
+  /**
+   * Fetches persisted history by app session id.
    *
    * Provider and provider-specific lookup hints are resolved from the indexed
-   * session metadata in the database.
+   * session metadata in the database. The provider adapter receives the
+   * provider-native session id (the one written into transcripts on disk),
+   * and every returned message is remapped back to the app session id so
+   * provider ids never reach the frontend.
    */
-  fetchHistory(
+  async fetchHistory(
     sessionId: string,
     options: Pick<FetchHistoryOptions, 'limit' | 'offset'> = {},
   ): Promise<FetchHistoryResult> {
@@ -106,12 +280,76 @@ export const sessionsService = {
       });
     }
 
+    // App-created sessions that never produced a provider transcript yet
+    // (e.g. first message still streaming) simply have no history.
+    if (!session.provider_session_id) {
+      return {
+        messages: [],
+        total: 0,
+        hasMore: false,
+        offset: options.offset ?? 0,
+        limit: options.limit ?? null,
+      };
+    }
+
     const provider = session.provider as LLMProvider;
-    return providerRegistry.resolveProvider(provider).sessions.fetchHistory(sessionId, {
+    const result = await providerRegistry.resolveProvider(provider).sessions.fetchHistory(sessionId, {
       limit: options.limit ?? null,
       offset: options.offset ?? 0,
       projectPath: session.project_path ?? '',
+      providerSessionId: session.provider_session_id,
     });
+
+    return {
+      ...result,
+      messages: result.messages.map((message) => ({
+        ...message,
+        sessionId,
+      })),
+    };
+  },
+
+  /**
+   * Resolves one session (by app id, falling back to the provider-native id)
+   * to its metadata plus the owning project.
+   *
+   * This backs deep links like `/session/:sessionId`: the frontend's paginated
+   * project payloads only carry each project's first session page, so a
+   * session opened directly by URL may not be present client-side at all —
+   * this lookup is the authoritative way to learn which project owns it.
+   */
+  getSessionDetailsById(sessionId: string): SessionDetails {
+    const session =
+      sessionsDb.getSessionById(sessionId) ?? sessionsDb.getSessionByProviderSessionId(sessionId);
+    if (!session) {
+      throw new AppError(`Session "${sessionId}" was not found.`, {
+        code: 'SESSION_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+
+    const projectPath = session.project_path?.trim() ? session.project_path : null;
+    const project = projectPath ? projectsDb.getProjectPath(projectPath) : null;
+
+    return {
+      sessionId: session.session_id,
+      provider: session.provider as LLMProvider,
+      summary: session.custom_name?.trim() || '',
+      createdAt: session.created_at ?? null,
+      updatedAt: session.updated_at ?? null,
+      lastActivity: session.updated_at ?? session.created_at ?? null,
+      isArchived: Boolean(session.isArchived),
+      project: project && projectPath
+        ? {
+            projectId: project.project_id,
+            path: projectPath,
+            fullPath: projectPath,
+            displayName: resolveProjectDisplayName(projectPath, project.custom_project_name),
+            isStarred: Boolean(project.isStarred),
+            isArchived: Boolean(project.isArchived),
+          }
+        : null,
+    };
   },
 
   /**

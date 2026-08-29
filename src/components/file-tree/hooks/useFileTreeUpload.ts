@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
 
-import { IS_PLATFORM } from '../../../constants/config';
+import { IS_PLATFORM } from '../../../shared/utils';
 import type { Project } from '../../../types/app';
+import {
+  expireAuthSession,
+  getStoredAuthToken,
+  storeAuthToken,
+} from '../../../utils/api';
 import {
   MAX_FILE_UPLOAD_COUNT,
   MAX_FILE_UPLOAD_SIZE_BYTES,
@@ -112,9 +117,9 @@ const uploadFormDataWithProgress = (
   new Promise<UploadResponse>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
 
-    xhr.open('POST', `/api/projects/${encodeURIComponent(projectId)}/files/upload`);
+    xhr.open('POST', `/api/file-tree/projects/${encodeURIComponent(projectId)}/files/upload`);
 
-    const token = localStorage.getItem('auth-token');
+    const token = getStoredAuthToken();
     if (!IS_PLATFORM && token) {
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     }
@@ -132,7 +137,10 @@ const uploadFormDataWithProgress = (
     xhr.onload = () => {
       const refreshedToken = xhr.getResponseHeader('X-Refreshed-Token');
       if (refreshedToken) {
-        localStorage.setItem('auth-token', refreshedToken);
+        storeAuthToken(refreshedToken);
+      }
+      if (xhr.getResponseHeader('X-Auth-Error')) {
+        expireAuthSession();
       }
 
       const payload = parseUploadResponse(xhr);
@@ -387,9 +395,12 @@ export const useFileTreeUpload = ({
     setIsDragOver(true);
   }, []);
 
+  // Item rows stop propagation of their own dragover, so reaching this handler
+  // means the cursor is over empty space and the drop should target the root.
   const handleDragOver = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    setDropTarget(null);
   }, []);
 
   const handleDragLeave = useCallback((e: DragEvent) => {
@@ -430,25 +441,19 @@ export const useFileTreeUpload = ({
     setDropTarget(itemPath);
   }, []);
 
-  const handleItemDrop = useCallback((e: DragEvent, itemPath: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDropTarget(itemPath);
-  }, []);
-
   return {
     isDragOver,
     dropTarget,
     operationLoading,
     uploadProgress,
     treeRef,
+    uploadFiles,
     handleFileSelect,
     handleDragEnter,
     handleDragOver,
     handleDragLeave,
     handleDrop,
     handleItemDragOver,
-    handleItemDrop,
     setDropTarget,
   };
 };
