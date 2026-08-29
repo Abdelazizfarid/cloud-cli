@@ -1,0 +1,33 @@
+<svg width="280" height="64" viewBox="0 0 280 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Beyond Brains">
+  <defs>
+    <linearGradient id="bbGrad2" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7C5CFF"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+  </defs>
+
+  <!-- mark -->
+  <g>
+    <g stroke="url(#bbGrad2)" stroke-width="1.6" stroke-linecap="round" opacity="0.55">
+      <path d="M32 32 L32 12"/><path d="M32 32 L50 20"/><path d="M32 32 L52 40"/>
+      <path d="M32 32 L40 52"/><path d="M32 32 L22 52"/><path d="M32 32 L12 40"/>
+      <path d="M32 32 L14 20"/><path d="M32 12 L50 20"/><path d="M50 20 L52 40"/>
+      <path d="M52 40 L40 52"/><path d="M40 52 L22 52"/><path d="M22 52 L12 40"/>
+      <path d="M12 40 L14 20"/><path d="M14 20 L32 12"/>
+    </g>
+    <path d="M32 12 C 24 22, 24 42, 32 52" stroke="url(#bbGrad2)" stroke-width="1.4" opacity="0.4" stroke-linecap="round"/>
+    <g fill="url(#bbGrad2)">
+      <circle cx="32" cy="12" r="3"/><circle cx="50" cy="20" r="3"/><circle cx="52" cy="40" r="2.6"/>
+      <circle cx="40" cy="52" r="3"/><circle cx="22" cy="52" r="2.6"/><circle cx="12" cy="40" r="3"/>
+      <circle cx="14" cy="20" r="2.6"/>
+    </g>
+    <circle cx="32" cy="32" r="6" fill="url(#bbGrad2)"/>
+    <circle cx="32" cy="32" r="6" fill="#0a0a12" opacity="0.18"/>
+    <circle cx="32" cy="32" r="2.4" fill="#fff"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="76" y="40" font-family="'Space Grotesk', 'Segoe UI', sans-serif" font-size="24" letter-spacing="-0.5">
+    <tspan fill="#F4F4FB" font-weight="500">Beyond</tspan><tspan fill="url(#bbGrad2)" font-weight="700">&#160;Brains</tspan>
+  </text>
+</svg>

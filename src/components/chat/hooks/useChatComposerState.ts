@@ -12,6 +12,7 @@ import type {
 import { useDropzone } from 'react-dropzone';
 
 import { authenticatedFetch } from '../../../utils/api';
+import { useWebSocket } from '../../../contexts/WebSocketContext';
 import type { MarkSessionProcessing, SessionActivityMap } from '../../../hooks/useSessionProtection';
 import { grantClaudeToolPermission } from '../utils/chatPermissions';
 import {
@@ -268,6 +269,7 @@ export function useChatComposerState({
   const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
   const [commandModalPayload, setCommandModalPayload] = useState<CommandModalPayload | null>(null);
 
+  const { subscribe, isConnected } = useWebSocket();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputHighlightRef = useRef<HTMLDivElement>(null);
   const textareaLineHeightRef = useRef<number | null>(null);
@@ -1051,6 +1053,91 @@ export function useChatComposerState({
       safeLocalStorage.removeItem(`draft_input_${selectedProjectId}`);
     }
   }, [input, selectedProjectId]);
+
+  // ---------------------------------------------------------------------------
+  // Live draft sync
+  //
+  // The composer draft is mirrored to this user's other browsers over the chat
+  // socket, so an unsent message typed on one device shows up on the rest. The
+  // server holds the latest text per project and echoes it to every socket
+  // except the one that sent it.
+  // ---------------------------------------------------------------------------
+
+  /** Highest draft version applied from the server; older frames are stale. */
+  const remoteDraftVersionRef = useRef(0);
+  /** Set when a remote draft lands, so applying it does not rebroadcast it. */
+  const skipDraftBroadcastRef = useRef(false);
+
+  useEffect(() => {
+    if (!selectedProjectId) {
+      return;
+    }
+    return subscribe((event) => {
+      const frame = event as {
+        kind?: unknown; projectId?: unknown; text?: unknown; version?: unknown;
+      };
+      if (frame?.kind !== 'draft_sync' || frame.projectId !== selectedProjectId) {
+        return;
+      }
+      const version = typeof frame.version === 'number' ? frame.version : 0;
+      if (version <= remoteDraftVersionRef.current) {
+        return;
+      }
+      remoteDraftVersionRef.current = version;
+
+      const text = typeof frame.text === 'string' ? frame.text : '';
+      if (text === inputValueRef.current) {
+        return;
+      }
+
+      // Keep the caret where the reader left it instead of jumping to the end,
+      // which a controlled textarea would otherwise do on every remote keystroke.
+      const element = textareaRef.current;
+      const caret = element && document.activeElement === element
+        ? element.selectionStart
+        : null;
+
+      skipDraftBroadcastRef.current = true;
+      setInput(text);
+      inputValueRef.current = text;
+
+      if (caret !== null && element) {
+        const position = Math.min(caret, text.length);
+        requestAnimationFrame(() => {
+          try {
+            element.setSelectionRange(position, position);
+          } catch {
+            // Element detached between frames; nothing to restore.
+          }
+        });
+      }
+    });
+  }, [subscribe, selectedProjectId, setInput]);
+
+  // Ask for the current draft when the project opens and again after a
+  // reconnect, so a tab opened later is not left showing stale text.
+  useEffect(() => {
+    if (!selectedProjectId || !isConnected) {
+      return;
+    }
+    remoteDraftVersionRef.current = 0;
+    sendMessage({ type: 'draft.subscribe', projectId: selectedProjectId });
+  }, [sendMessage, isConnected, selectedProjectId]);
+
+  useEffect(() => {
+    if (!selectedProjectId || !isConnected) {
+      return;
+    }
+    if (skipDraftBroadcastRef.current) {
+      skipDraftBroadcastRef.current = false;
+      return;
+    }
+    // Debounced: typing should not put a frame on the wire per keystroke.
+    const timer = setTimeout(() => {
+      sendMessage({ type: 'draft.update', projectId: selectedProjectId, text: input });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [input, selectedProjectId, isConnected, sendMessage]);
 
   // Persist the queued draft under its session's key. Must be defined BEFORE
   // the swap effect below: on a session switch there is one commit where

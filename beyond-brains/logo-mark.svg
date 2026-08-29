@@ -1,0 +1,45 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Beyond Brains logo mark">
+  <defs>
+    <linearGradient id="bbGrad" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7C5CFF"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+  </defs>
+
+  <!-- knowledge-graph edges (relationships) -->
+  <g stroke="url(#bbGrad)" stroke-width="1.6" stroke-linecap="round" opacity="0.55">
+    <path d="M32 32 L32 12"/>
+    <path d="M32 32 L50 20"/>
+    <path d="M32 32 L52 40"/>
+    <path d="M32 32 L40 52"/>
+    <path d="M32 32 L22 52"/>
+    <path d="M32 32 L12 40"/>
+    <path d="M32 32 L14 20"/>
+    <path d="M32 12 L50 20"/>
+    <path d="M50 20 L52 40"/>
+    <path d="M52 40 L40 52"/>
+    <path d="M40 52 L22 52"/>
+    <path d="M22 52 L12 40"/>
+    <path d="M12 40 L14 20"/>
+    <path d="M14 20 L32 12"/>
+  </g>
+
+  <!-- subtle central brain fold -->
+  <path d="M32 12 C 24 22, 24 42, 32 52" stroke="url(#bbGrad)" stroke-width="1.4" opacity="0.4" stroke-linecap="round"/>
+
+  <!-- nodes (knowledge entities) -->
+  <g fill="url(#bbGrad)">
+    <circle cx="32" cy="12" r="3"/>
+    <circle cx="50" cy="20" r="3"/>
+    <circle cx="52" cy="40" r="2.6"/>
+    <circle cx="40" cy="52" r="3"/>
+    <circle cx="22" cy="52" r="2.6"/>
+    <circle cx="12" cy="40" r="3"/>
+    <circle cx="14" cy="20" r="2.6"/>
+  </g>
+
+  <!-- core brain node (the RAG-powered brain) -->
+  <circle cx="32" cy="32" r="6" fill="url(#bbGrad)"/>
+  <circle cx="32" cy="32" r="6" fill="#0a0a12" opacity="0.18"/>
+  <circle cx="32" cy="32" r="2.4" fill="#fff"/>
+</svg>

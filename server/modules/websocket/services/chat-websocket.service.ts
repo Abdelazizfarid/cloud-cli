@@ -7,6 +7,12 @@ import { providerModelsService } from '@/modules/providers/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import {
+  handleDraftSubscribe,
+  handleDraftUpdate,
+  registerDraftClient,
+  unregisterDraftClient,
+} from './draft-sync.service.js';
+import {
   getGlobalImageAssetsDir,
   isImageAttachmentDescriptor,
   normalizeAttachmentDescriptors,
@@ -383,6 +389,7 @@ export function handleChatConnection(
   connectedClients.add(ws);
 
   const userId = readRequestUserId(request);
+  registerDraftClient(ws, userId);
 
   ws.on('message', async (rawMessage) => {
     try {
@@ -407,6 +414,12 @@ export function handleChatConnection(
         case 'chat.permission-response':
           handlePermissionResponse(data, dependencies);
           return;
+        case 'draft.update':
+          handleDraftUpdate(ws, userId, data);
+          return;
+        case 'draft.subscribe':
+          handleDraftSubscribe(ws, userId, data);
+          return;
         default:
           sendProtocolError(ws, 'UNKNOWN_MESSAGE_TYPE', `Unknown message type "${messageType}".`);
           return;
@@ -421,5 +434,6 @@ export function handleChatConnection(
   ws.on('close', () => {
     console.log('[INFO] Chat client disconnected');
     connectedClients.delete(ws);
+    unregisterDraftClient(ws);
   });
 }

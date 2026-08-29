@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Beyond Brains — Turn your company's knowledge into a brain</title>
+  <meta name="description" content="Beyond Brains records your meetings, consolidates institutional knowledge into a knowledge graph, and uses RAG to build a custom AI brain for your organization." />
+
+  <link rel="icon" href="logo-mark.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --bg:        #0a0a12;
+      --bg-soft:   #11111e;
+      --surface:   rgba(255,255,255,0.04);
+      --border:    rgba(255,255,255,0.10);
+      --text:      #f4f4fb;
+      --text-dim:  #a9a9c4;
+      --violet:    #7c5cff;
+      --cyan:      #22d3ee;
+      --grad:      linear-gradient(120deg, #7c5cff 0%, #22d3ee 100%);
+      --radius:    18px;
+      --ease:      cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.6;
+      overflow-x: hidden; -webkit-font-smoothing: antialiased;
+    }
+    h1, h2, h3, .brand, .step-num, .stat .num { font-family: 'Space Grotesk', sans-serif; letter-spacing: -0.02em; }
+    a { color: inherit; text-decoration: none; }
+    a:focus-visible, button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; border-radius: 6px; }
+
+    .grad-text {
+      background: var(--grad);
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    }
+
+    /* ---------- 3D canvas ---------- */
+    #scene { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; display: block; }
+    .scene-veil {
+      position: fixed; inset: 0; z-index: 1; pointer-events: none;
+      background:
+        radial-gradient(900px 600px at 72% 18%, rgba(124,92,255,0.20), transparent 60%),
+        radial-gradient(700px 500px at 18% 85%, rgba(34,211,238,0.12), transparent 60%),
+        linear-gradient(to bottom, rgba(10,10,18,0) 35%, rgba(10,10,18,0.92) 100%);
+    }
+
+    /* ---------- nav ---------- */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px clamp(20px, 5vw, 64px);
+      backdrop-filter: blur(12px); background: rgba(10,10,18,0.35);
+      border-bottom: 1px solid transparent;
+      transition: border-color .3s var(--ease), background .3s var(--ease);
+    }
+    nav.scrolled { border-bottom-color: var(--border); background: rgba(10,10,18,0.7); }
+    .brand { font-weight: 700; font-size: 1.12rem; display: flex; align-items: center; gap: 10px; }
+    .brand svg { flex-shrink: 0; }
+    footer .brand svg { width: 28px; height: 28px; }
+
+    /* ---- animated logo mark (top-left), pure CSS ---- */
+    .logo-mark { width: 36px; height: 36px; overflow: visible; }
+    .logo-mark .lm-graph,
+    .logo-mark .lm-core,
+    .logo-mark .lm-spark,
+    .logo-mark .lm-node { transform-box: view-box; transform-origin: 32px 32px; }
+    .logo-mark .lm-graph  { animation: lmSpin 18s linear infinite; }
+    .logo-mark .lm-core   { animation: lmPulse 2.4s ease-in-out infinite; }
+    .logo-mark .lm-spark  { animation: lmSpark 2.4s ease-in-out infinite; }
+    .logo-mark .lm-node   { animation: lmNode 3s ease-in-out infinite; }
+    .logo-mark .lm-node:nth-of-type(1){ animation-delay: 0s; }
+    .logo-mark .lm-node:nth-of-type(2){ animation-delay: .43s; }
+    .logo-mark .lm-node:nth-of-type(3){ animation-delay: .86s; }
+    .logo-mark .lm-node:nth-of-type(4){ animation-delay: 1.29s; }
+    .logo-mark .lm-node:nth-of-type(5){ animation-delay: 1.72s; }
+    .logo-mark .lm-node:nth-of-type(6){ animation-delay: 2.15s; }
+    .logo-mark .lm-node:nth-of-type(7){ animation-delay: 2.58s; }
+    .brand:hover .logo-mark .lm-graph { animation-duration: 4s; }   /* spins faster on hover */
+    @keyframes lmSpin  { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+    @keyframes lmPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.16); } }
+    @keyframes lmSpark { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
+    @keyframes lmNode  { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
+    .brand .b1 { color: var(--text); font-weight: 500; }
+    .nav-links { display: flex; gap: 30px; align-items: center; }
+    .nav-links a { color: var(--text-dim); font-size: .95rem; transition: color .2s var(--ease); }
+    .nav-links a:hover { color: var(--text); }
+    .btn {
+      font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: .95rem;
+      padding: 11px 22px; border-radius: 999px; border: none; cursor: pointer;
+      min-height: 44px; display: inline-flex; align-items: center; gap: 8px;
+      transition: transform .2s var(--ease), box-shadow .25s var(--ease), border-color .25s var(--ease);
+    }
+    .btn-primary { background: var(--grad); color: #0a0a12; box-shadow: 0 8px 30px rgba(124,92,255,0.35); }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 40px rgba(124,92,255,0.5); }
+    .btn-ghost { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+    .btn-ghost:hover { transform: translateY(-2px); border-color: var(--cyan); }
+    @media (max-width: 760px) { .nav-links { display: none; } }
+
+    /* ---------- layout ---------- */
+    main { position: relative; z-index: 5; }
+    section { padding: 0 clamp(20px, 5vw, 64px); }
+    .wrap { max-width: 1180px; margin: 0 auto; }
+    .section-head { text-align: center; max-width: 660px; margin: 0 auto 56px; }
+    .eyebrow { color: var(--cyan); font-weight: 600; font-size: .85rem; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 14px; }
+    .section-head h2 { font-size: clamp(2rem, 5vw, 3rem); margin-bottom: 16px; }
+    .section-head p { color: var(--text-dim); font-size: 1.1rem; }
+
+    /* ---------- hero ---------- */
+    .hero {
+      min-height: 100vh; min-height: 100dvh;
+      display: flex; flex-direction: column; justify-content: center; text-align: center;
+      padding-top: 90px;
+    }
+    .pill {
+      display: inline-flex; align-items: center; gap: 8px; align-self: center;
+      padding: 7px 16px; border-radius: 999px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--text-dim); font-size: .82rem; margin-bottom: 28px;
+    }
+    .pill .live { width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .hero h1 { font-size: clamp(2.5rem, 7.5vw, 5.2rem); font-weight: 700; line-height: 1.04; margin-bottom: 24px; }
+    .hero p { max-width: 620px; margin: 0 auto 38px; font-size: clamp(1.05rem, 2.4vw, 1.28rem); color: var(--text-dim); }
+    .hero-cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+    .hero-sub { margin-top: 22px; color: var(--text-dim); font-size: .85rem; }
+
+    .scroll-hint { margin-top: 56px; color: var(--text-dim); font-size: .75rem; letter-spacing: .15em; text-transform: uppercase; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    .scroll-hint .mouse { width: 24px; height: 38px; border: 2px solid var(--border); border-radius: 14px; position: relative; }
+    .scroll-hint .mouse::after { content: ''; position: absolute; top: 7px; left: 50%; transform: translateX(-50%); width: 4px; height: 7px; border-radius: 3px; background: var(--cyan); animation: wheel 1.8s infinite var(--ease); }
+    @keyframes wheel { 0%{opacity:0; transform:translate(-50%,0)} 40%{opacity:1} 80%{opacity:0; transform:translate(-50%,12px)} }
+
+    /* ---------- how it works ---------- */
+    .how { padding: 120px 0; }
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 20px; }
+    .step {
+      position: relative; background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 30px; backdrop-filter: blur(8px);
+      transition: transform .35s var(--ease), border-color .35s var(--ease);
+    }
+    .step:hover { transform: translateY(-6px); border-color: rgba(124,92,255,0.5); }
+    .step-num { font-size: 2rem; font-weight: 700; -webkit-text-fill-color: transparent; -webkit-background-clip: text; background-clip: text; background: var(--grad); display: block; margin-bottom: 14px; }
+    .step h3 { font-size: 1.18rem; margin-bottom: 8px; }
+    .step p { color: var(--text-dim); font-size: .96rem; }
+    .step .arrow { display: none; }
+
+    /* ---------- features ---------- */
+    .features { padding-bottom: 120px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 22px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 32px; backdrop-filter: blur(8px);
+      transition: transform .35s var(--ease), border-color .35s var(--ease), background .35s var(--ease);
+    }
+    .card:hover { transform: translateY(-6px); border-color: rgba(124,92,255,0.5); background: rgba(255,255,255,0.06); }
+    .card .ico { width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center; background: var(--grad); margin-bottom: 22px; }
+    .card .ico svg { width: 26px; height: 26px; stroke: #0a0a12; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+    .card h3 { font-size: 1.22rem; margin-bottom: 10px; }
+    .card p { color: var(--text-dim); font-size: .97rem; }
+
+    /* reveal */
+    .reveal { opacity: 0; transform: translateY(28px); transition: opacity .7s var(--ease), transform .7s var(--ease); }
+    .reveal.in { opacity: 1; transform: none; }
+
+    /* ---------- stats ---------- */
+    .stats { padding-bottom: 120px; }
+    .stats .grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); text-align: center; }
+    .stat .num { font-size: clamp(2.4rem, 6vw, 3.6rem); font-weight: 700; -webkit-text-fill-color: transparent; -webkit-background-clip: text; background-clip: text; background: var(--grad); }
+    .stat .lbl { color: var(--text-dim); font-size: .95rem; margin-top: 6px; }
+
+    /* ---------- CTA ---------- */
+    .cta { padding-bottom: 140px; }
+    .cta-box {
+      position: relative; overflow: hidden; text-align: center;
+      padding: clamp(48px, 8vw, 96px) 28px; border-radius: 28px; border: 1px solid var(--border);
+      background: radial-gradient(600px 300px at 50% 0%, rgba(124,92,255,0.25), transparent 70%), var(--bg-soft);
+    }
+    .cta-box h2 { font-size: clamp(2rem, 5vw, 3.2rem); margin-bottom: 18px; }
+    .cta-box p { color: var(--text-dim); max-width: 520px; margin: 0 auto 32px; font-size: 1.1rem; }
+
+    /* ---------- footer ---------- */
+    footer { position: relative; z-index: 5; border-top: 1px solid var(--border); padding: 40px clamp(20px,5vw,64px); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; color: var(--text-dim); font-size: .9rem; }
+    footer .brand { font-size: 1rem; }
+    footer .brand svg { width: 28px; height: 28px; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
+      .reveal { opacity: 1; transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="scene" aria-hidden="true"></canvas>
+  <div class="scene-veil" aria-hidden="true"></div>
+
+  <!-- inline logo mark, reused via <use> -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <linearGradient id="bbGrad" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#7C5CFF"/><stop offset="1" stop-color="#22D3EE"/>
+      </linearGradient>
+      <g id="bbMark">
+        <g stroke="url(#bbGrad)" stroke-width="1.6" stroke-linecap="round" opacity="0.55">
+          <animate attributeName="opacity" values="0.35;0.7;0.35" dur="3.2s" repeatCount="indefinite"/>
+          <path d="M32 32 L32 12"/><path d="M32 32 L50 20"/><path d="M32 32 L52 40"/>
+          <path d="M32 32 L40 52"/><path d="M32 32 L22 52"/><path d="M32 32 L12 40"/>
+          <path d="M32 32 L14 20"/><path d="M32 12 L50 20"/><path d="M50 20 L52 40"/>
+          <path d="M52 40 L40 52"/><path d="M40 52 L22 52"/><path d="M22 52 L12 40"/>
+          <path d="M12 40 L14 20"/><path d="M14 20 L32 12"/>
+        </g>
+        <path d="M32 12 C 24 22, 24 42, 32 52" stroke="url(#bbGrad)" stroke-width="1.4" opacity="0.4" stroke-linecap="round"/>
+        <!-- outer nodes: staggered pulse = knowledge "lighting up" and flowing to the core -->
+        <g fill="url(#bbGrad)">
+          <circle cx="32" cy="12" r="3"><animate attributeName="opacity" values="0.45;1;0.45" keyTimes="0;0.5;1" dur="3s" begin="0s" repeatCount="indefinite"/></circle>
+          <circle cx="50" cy="20" r="3"><animate attributeName="opacity" values="0.45;1;0.45" keyTimes="0;0.5;1" dur="3s" begin="0.43s" repeatCount="indefinite"/></circle>
+          <circle cx="52" cy="40" r="2.6"><animate attributeName="opacity" values="0.45;1;0.45" keyTimes="0;0.5;1" dur="3s" begin="0.86s" repeatCount="indefinite"/></circle>
+          <circle cx="40" cy="52" r="3"><animate attributeName="opacity" values="0.45;1;0.45" keyTimes="0;0.5;1" dur="3s" begin="1.29s" repeatCount="indefinite"/></circle>
+          <circle cx="22" cy="52" r="2.6"><animate attributeName="opacity" values="0.45;1;0.45" keyTimes="0;0.5;1" dur="3s" begin="1.72s" repeatCount="indefinite"/></circle>
+          <circle cx="12" cy="40" r="3"><animate attributeName="opacity" values="0.45;1;0.45" keyTimes="0;0.5;1" dur="3s" begin="2.15s" repeatCount="indefinite"/></circle>
+          <circle cx="14" cy="20" r="2.6"><animate attributeName="opacity" values="0.45;1;0.45" keyTimes="0;0.5;1" dur="3s" begin="2.58s" repeatCount="indefinite"/></circle>
+        </g>
+        <!-- core brain node: gentle pulse -->
+        <circle cx="32" cy="32" r="6" fill="url(#bbGrad)">
+          <animate attributeName="r" values="5.6;6.6;5.6" dur="2.4s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="32" cy="32" r="6" fill="#0a0a12" opacity="0.18"/>
+        <circle cx="32" cy="32" r="2.4" fill="#fff">
+          <animate attributeName="r" values="2.2;3.2;2.2" dur="2.4s" repeatCount="indefinite"/>
+          <animate attributeName="opacity" values="1;0.55;1" dur="2.4s" repeatCount="indefinite"/>
+        </circle>
+      </g>
+    </defs>
+  </svg>
+
+  <nav id="nav">
+    <a class="brand" href="#top" aria-label="Beyond Brains home">
+      <svg class="logo-mark" viewBox="0 0 64 64" aria-hidden="true">
+        <!-- orbiting knowledge graph (edges + nodes rotate together) -->
+        <g class="lm-graph">
+          <g stroke="url(#bbGrad)" stroke-width="1.6" stroke-linecap="round" opacity="0.5">
+            <path d="M32 32 L32 12"/><path d="M32 32 L50 20"/><path d="M32 32 L52 40"/>
+            <path d="M32 32 L40 52"/><path d="M32 32 L22 52"/><path d="M32 32 L12 40"/>
+            <path d="M32 32 L14 20"/><path d="M32 12 L50 20"/><path d="M50 20 L52 40"/>
+            <path d="M52 40 L40 52"/><path d="M40 52 L22 52"/><path d="M22 52 L12 40"/>
+            <path d="M12 40 L14 20"/><path d="M14 20 L32 12"/>
+          </g>
+          <g fill="url(#bbGrad)">
+            <circle class="lm-node" cx="32" cy="12" r="3"/>
+            <circle class="lm-node" cx="50" cy="20" r="3"/>
+            <circle class="lm-node" cx="52" cy="40" r="2.6"/>
+            <circle class="lm-node" cx="40" cy="52" r="3"/>
+            <circle class="lm-node" cx="22" cy="52" r="2.6"/>
+            <circle class="lm-node" cx="12" cy="40" r="3"/>
+            <circle class="lm-node" cx="14" cy="20" r="2.6"/>
+          </g>
+        </g>
+        <!-- pulsing brain core (stays centered) -->
+        <circle class="lm-core" cx="32" cy="32" r="6" fill="url(#bbGrad)"/>
+        <circle cx="32" cy="32" r="6" fill="#0a0a12" opacity="0.18"/>
+        <circle class="lm-spark" cx="32" cy="32" r="2.4" fill="#fff"/>
+      </svg>
+      <span><span class="b1">Beyond</span> Brains</span>
+    </a>
+    <div class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#features">Platform</a>
+      <a href="#stats">Why it matters</a>
+    </div>
+    <button class="btn btn-primary" type="button">Book a demo</button>
+  </nav>
+
+  <main id="top">
+    <!-- Hero -->
+    <header class="hero wrap">
+      <span class="pill"><span class="live"></span> RAG-powered institutional memory</span>
+      <h1>Give your company<br /><span class="grad-text">a brain of its own.</span></h1>
+      <p>Beyond Brains records every meeting and captures your scattered institutional knowledge into one centralized repository — then structures it into a living knowledge graph and serves it back through a custom AI brain built for your organization.</p>
+      <div class="hero-cta">
+        <button class="btn btn-primary" type="button">Build your brain →</button>
+        <a class="btn btn-ghost" href="#how">See how it works</a>
+      </div>
+      <div class="hero-sub">No more knowledge walking out the door.</div>
+      <div class="scroll-hint"><span class="mouse"></span> Scroll</div>
+    </header>
+
+    <!-- How it works -->
+    <section id="how" class="how wrap">
+      <div class="section-head reveal">
+        <div class="eyebrow">The pipeline</div>
+        <h2>From conversation to company brain</h2>
+        <p>Four steps turn everyday work into permanent, retrievable intelligence.</p>
+      </div>
+      <div class="steps">
+        <div class="step reveal">
+          <span class="step-num">01</span>
+          <h3>Record</h3>
+          <p>We capture your meetings and calls automatically — transcribed, speaker-tagged, and timestamped.</p>
+        </div>
+        <div class="step reveal">
+          <span class="step-num">02</span>
+          <h3>Consolidate</h3>
+          <p>Every relevant signal flows into one centralized repository, so knowledge stops living in silos and inboxes.</p>
+        </div>
+        <div class="step reveal">
+          <span class="step-num">03</span>
+          <h3>Connect</h3>
+          <p>We structure it into a knowledge graph with defined relationships between people, projects, decisions, and facts.</p>
+        </div>
+        <div class="step reveal">
+          <span class="step-num">04</span>
+          <h3>Retrieve</h3>
+          <p>Our RAG engine turns that graph into a custom brain that answers questions with cited, in-context truth.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features" class="features wrap">
+      <div class="section-head reveal">
+        <div class="eyebrow">The platform</div>
+        <h2>One brain. Built for your org.</h2>
+        <p>Tailored knowledge bases that understand how your company actually works.</p>
+      </div>
+      <div class="grid">
+        <article class="card reveal">
+          <div class="ico"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg></div>
+          <h3>Meeting capture</h3>
+          <p>Auto-record, transcribe, and index every conversation so nothing important is ever lost or forgotten again.</p>
+        </article>
+        <article class="card reveal">
+          <div class="ico"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="17" r="2.5"/><path d="M8 7l8 .5M7 8l4 7M17 9l-4 6"/></svg></div>
+          <h3>Knowledge graph</h3>
+          <p>Entities and relationships mapped automatically — people, decisions, and projects linked into one connected memory.</p>
+        </article>
+        <article class="card reveal">
+          <div class="ico"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></div>
+          <h3>RAG retrieval</h3>
+          <p>Ask anything in plain language. Answers come back grounded in your data, with citations you can trust.</p>
+        </article>
+        <article class="card reveal">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M4 7l8-4 8 4v6c0 5-4 8-8 9-4-1-8-4-8-9V7Z"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <h3>Private &amp; secure</h3>
+          <p>Your knowledge stays yours. Isolated per organization, encrypted end-to-end, and never used to train shared models.</p>
+        </article>
+        <article class="card reveal">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="9"/></svg></div>
+          <h3>Tailored per company</h3>
+          <p>Each brain is shaped around your terminology, teams, and workflows — not a generic, one-size-fits-all model.</p>
+        </article>
+        <article class="card reveal">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M13 2L3 14h7l-1 8 9-12h-7l1-8Z"/></svg></div>
+          <h3>Always current</h3>
+          <p>The graph updates as work happens, so your brain reflects the latest decisions instead of stale documents.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- Stats -->
+    <section id="stats" class="stats wrap">
+      <div class="section-head reveal">
+        <div class="eyebrow">Why it matters</div>
+        <h2>Knowledge that compounds</h2>
+      </div>
+      <div class="grid">
+        <div class="stat reveal"><div class="num" data-count="20" data-suffix="%">0</div><div class="lbl">of the workweek lost searching for info</div></div>
+        <div class="stat reveal"><div class="num" data-count="100" data-suffix="%">0</div><div class="lbl">of meetings captured automatically</div></div>
+        <div class="stat reveal"><div class="num" data-count="1" data-suffix="">0</div><div class="lbl">source of truth, per organization</div></div>
+        <div class="stat reveal"><div class="num" data-count="0" data-prefix="" data-suffix="s">0</div><div class="lbl">knowledge lost when people leave</div></div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section id="cta" class="cta wrap">
+      <div class="cta-box reveal">
+        <h2>Build your company's brain.</h2>
+        <p>Turn the knowledge trapped in meetings and minds into an asset that answers, remembers, and grows with you.</p>
+        <button class="btn btn-primary" type="button">Book a demo →</button>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <a class="brand" href="#top" aria-label="Beyond Brains home">
+      <svg viewBox="0 0 64 64"><use href="#bbMark"/></svg>
+      <span><span class="b1" style="color:var(--text)">Beyond</span> Brains</span>
+    </a>
+    <div>© 2026 Beyond Brains · Institutional knowledge, made intelligent.</div>
+  </footer>
+
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+
+    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const canvas = document.getElementById('scene');
+
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, failIfMajorPerformanceCaveat: false });
+    } catch (e) {
+      // No WebGL available — keep the CSS gradient background and bail out gracefully.
+      canvas.style.display = 'none';
+      console.warn('WebGL unavailable, skipping 3D background.');
+    }
+    if (renderer) {
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.z = 11;
+
+    // ---- Knowledge graph: nodes inside a sphere, edges between near neighbours ----
+    const group = new THREE.Group();
+    scene.add(group);
+
+    const NODES = 60;
+    const R = 4.4;
+    const nodes = [];
+    for (let i = 0; i < NODES; i++) {
+      // even-ish distribution on a sphere (fibonacci) with slight jitter inward
+      const phi = Math.acos(1 - 2 * (i + 0.5) / NODES);
+      const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+      const r = R * (0.7 + 0.3 * ((i * 9301 % 233) / 233)); // pseudo-random radius
+      nodes.push(new THREE.Vector3(
+        r * Math.sin(phi) * Math.cos(theta),
+        r * Math.sin(phi) * Math.sin(theta),
+        r * Math.cos(phi)
+      ));
+    }
+
+    // node points
+    const nodeGeo = new THREE.BufferGeometry().setFromPoints(nodes);
+    const nodeMat = new THREE.PointsMaterial({ color: 0x9bb4ff, size: 0.16, transparent: true, opacity: 0.95, sizeAttenuation: true });
+    group.add(new THREE.Points(nodeGeo, nodeMat));
+
+    // edges between nearby nodes (the "relationships")
+    const edgePts = [];
+    const MAXD = 2.4;
+    for (let i = 0; i < NODES; i++) {
+      let links = 0;
+      for (let j = i + 1; j < NODES && links < 3; j++) {
+        if (nodes[i].distanceTo(nodes[j]) < MAXD) { edgePts.push(nodes[i], nodes[j]); links++; }
+      }
+    }
+    const edgeGeo = new THREE.BufferGeometry().setFromPoints(edgePts);
+    const edgeMat = new THREE.LineBasicMaterial({ color: 0x7c5cff, transparent: true, opacity: 0.28 });
+    group.add(new THREE.LineSegments(edgeGeo, edgeMat));
+
+    // glowing core "brain" node at center
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.9 });
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.42, 24, 24), coreMat);
+    group.add(core);
+    const halo = new THREE.Mesh(new THREE.SphereGeometry(0.72, 24, 24), new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.12 }));
+    group.add(halo);
+
+    // ambient dust
+    const dust = new Float32Array(300 * 3);
+    for (let i = 0; i < dust.length; i++) dust[i] = (Math.random() - 0.5) * 30;
+    const dustGeo = new THREE.BufferGeometry();
+    dustGeo.setAttribute('position', new THREE.BufferAttribute(dust, 3));
+    scene.add(new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: 0x555577, size: 0.04, transparent: true, opacity: 0.6 })));
+
+    const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
+
+    // --- rotation state: baseline auto-spin + user-controlled rotation with momentum ---
+    const userRot = { x: 0, y: 0 };   // accumulated manual rotation
+    const rotVel  = { x: 0, y: 0 };   // angular velocity (the "push" / momentum)
+    let autoSpin  = 0;                 // continuous idle spin
+    let dragging = false, decided = false, isRotate = false;
+    const start = { x: 0, y: 0 }, last = { x: 0, y: 0 };
+    const NO_DRAG = 'a,button,input,textarea,select,label,nav';
+
+    function onDown(e) {
+      if (e.target.closest && e.target.closest(NO_DRAG)) return; // let UI controls work
+      dragging = true; decided = false; isRotate = false;
+      start.x = last.x = e.clientX; start.y = last.y = e.clientY;
+    }
+    function onMove(e) {
+      mouse.tx = (e.clientX / window.innerWidth - 0.5);
+      mouse.ty = (e.clientY / window.innerHeight - 0.5);
+      if (!dragging) return;
+      if (!decided) {
+        const adx = Math.abs(e.clientX - start.x), ady = Math.abs(e.clientY - start.y);
+        if (adx < 5 && ady < 5) return;          // movement threshold
+        decided = true;
+        isRotate = adx >= ady;                    // horizontal drag = rotate; vertical = hand back to scroll
+        if (!isRotate) { dragging = false; return; }
+        document.body.style.cursor = 'grabbing';
+      }
+      if (isRotate) {
+        if (e.cancelable) e.preventDefault();
+        const dx = e.clientX - last.x, dy = e.clientY - last.y;
+        rotVel.y = dx * 0.006;
+        rotVel.x = dy * 0.006;
+        userRot.y += rotVel.y;
+        userRot.x += rotVel.x;
+        last.x = e.clientX; last.y = e.clientY;
+      }
+    }
+    function onUp() { dragging = false; document.body.style.cursor = ''; } // momentum retained in rotVel
+    window.addEventListener('pointerdown', onDown);
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+
+    // --- scroll: progress drives the graph; scroll velocity gives it a spin kick ---
+    let scrollY = 0, lastScroll = 0, scrollProg = 0;
+    function maxScroll() { return Math.max(1, document.documentElement.scrollHeight - window.innerHeight); }
+    window.addEventListener('scroll', () => {
+      scrollY = window.scrollY;
+      const dv = scrollY - lastScroll;
+      rotVel.y += Math.max(-0.05, Math.min(0.05, dv * 0.0006)); // scroll flicks the globe
+      lastScroll = scrollY;
+      scrollProg = Math.min(1, scrollY / maxScroll());
+    }, { passive: true });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    let t = 0;
+    let prog = 0; // smoothed scroll progress
+    function animate() {
+      t += 0.01;
+      mouse.x += (mouse.tx - mouse.x) * 0.05;
+      mouse.y += (mouse.ty - mouse.y) * 0.05;
+      prog += (scrollProg - prog) * 0.06;
+
+      // rotation: idle spin + manual momentum (decays with friction when not dragging)
+      autoSpin += 0.0022;
+      if (!dragging) {
+        userRot.y += rotVel.y;
+        userRot.x += rotVel.x;
+        rotVel.x *= 0.94;
+        rotVel.y *= 0.94;
+      }
+      // clamp vertical tilt so it never flips fully over
+      userRot.x = Math.max(-1.2, Math.min(1.2, userRot.x));
+      group.rotation.y = autoSpin + userRot.y;
+      group.rotation.x = userRot.x + mouse.y * 0.25;
+      group.rotation.z = prog * 0.5; // tilt as you scroll
+
+      // SCROLL-TRIGGERED: graph blooms outward, relationships light up
+      group.scale.setScalar(1 + prog * 0.35);
+      edgeMat.opacity = 0.22 + prog * 0.45;
+      nodeMat.opacity = 0.8 + prog * 0.2;
+
+      // core "brain" activates: pulse grows + halo intensifies with scroll
+      const pulse = 1 + Math.sin(t * 2) * 0.12 + prog * 0.6;
+      core.scale.setScalar(pulse);
+      halo.scale.setScalar((1 + Math.sin(t * 2) * 0.18) * (1 + prog * 0.8));
+      halo.material.opacity = 0.10 + Math.abs(Math.sin(t * 2)) * 0.08 + prog * 0.12;
+
+      camera.position.x += (mouse.x * 2.2 - camera.position.x) * 0.04;
+      camera.position.y += (-mouse.y * 1.6 - camera.position.y) * 0.04;
+      camera.position.z = 11 - prog * 3.4; // dolly in as you scroll
+      camera.lookAt(scene.position);
+
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+    renderer.render(scene, camera);
+    if (prefersReduced) {
+      // static, accessible: render a single frame, no continuous motion or interaction
+      renderer.render(scene, camera);
+    } else {
+      animate();
+      // grab affordance on the background
+      canvas.style.cursor = 'grab';
+    }
+    } // end if (renderer)
+
+    // ---------- UI behaviour ----------
+    const nav = document.getElementById('nav');
+    window.addEventListener('scroll', () => nav.classList.toggle('scrolled', window.scrollY > 20), { passive: true });
+
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((en) => { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } });
+    }, { threshold: 0.15 });
+    document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+    function countUp(el) {
+      const target = +el.dataset.count;
+      const pre = el.dataset.prefix || '';
+      const suf = el.dataset.suffix || '';
+      if (prefersReduced || target === 0) { el.textContent = pre + target + suf; return; }
+      let n = 0;
+      const step = Math.max(1, Math.round(target / 45));
+      const tick = () => { n = Math.min(target, n + step); el.textContent = pre + n + suf; if (n < target) requestAnimationFrame(tick); };
+      tick();
+    }
+    const statIO = new IntersectionObserver((entries) => {
+      entries.forEach((en) => { if (en.isIntersecting) { countUp(en.target); statIO.unobserve(en.target); } });
+    }, { threshold: 0.6 });
+    document.querySelectorAll('.num[data-count]').forEach((el) => statIO.observe(el));
+  </script>
+</body>
+</html>
