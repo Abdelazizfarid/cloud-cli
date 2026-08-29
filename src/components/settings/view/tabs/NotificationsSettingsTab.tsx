@@ -144,6 +144,23 @@ export default function NotificationsSettingsTab({
                   {t('notifications.webPush.enabled')}
                 </span>
               )}
+              {isPushSubscribed && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const { authenticatedFetch } = await import('../../../../utils/api');
+                      await authenticatedFetch('/api/settings/push/test', { method: 'POST' });
+                    } catch (error) {
+                      console.error('Failed to send test push notification', error);
+                    }
+                  }}
+                  className="inline-flex items-center gap-2 rounded-md bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                >
+                  <Bell className="h-4 w-4" />
+                  Test
+                </button>
+              )}
             </div>
           )}
         </div>

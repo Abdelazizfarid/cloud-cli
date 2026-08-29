@@ -2,7 +2,7 @@ import React from 'react';
 
 interface TextContentProps {
   content: string;
-  format?: 'plain' | 'json' | 'code';
+  format?: 'plain' | 'json' | 'code' | 'terminal';
   className?: string;
 }
 
@@ -35,6 +35,14 @@ export const TextContent: React.FC<TextContentProps> = ({
   if (format === 'code') {
     return (
       <pre className={`mt-1 overflow-hidden whitespace-pre-wrap break-words rounded border border-gray-200/50 bg-gray-50 p-2 font-mono text-xs text-gray-700 dark:border-gray-700/50 dark:bg-gray-800/50 dark:text-gray-300 ${className}`}>
+        {content}
+      </pre>
+    );
+  }
+
+  if (format === 'terminal') {
+    return (
+      <pre className={`mt-1 overflow-x-auto whitespace-pre-wrap break-words rounded bg-gray-900 p-2.5 font-mono text-xs text-green-400 dark:bg-gray-950 ${className}`}>
         {content}
       </pre>
     );

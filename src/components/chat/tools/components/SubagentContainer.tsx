@@ -62,7 +62,7 @@ export const SubagentContainer: React.FC<SubagentContainerProps> = ({
       <CollapsibleSection
         title={title}
         toolName="Task"
-        open={false}
+        open={!isComplete}
       >
         {/* Prompt/request to the subagent */}
         {prompt && (

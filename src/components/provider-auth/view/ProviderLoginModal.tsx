@@ -51,7 +51,7 @@ const getProviderCommand = ({
   }
 
   if (provider === 'codex') {
-    return IS_PLATFORM ? 'codex login --device-auth' : 'codex login';
+    return 'codex login --device-auth';
   }
 
   if (provider === 'opencode') {

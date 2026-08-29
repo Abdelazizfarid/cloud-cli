@@ -48,20 +48,14 @@ export const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
 
   Bash: {
     input: {
-      type: 'one-line',
-      icon: 'terminal',
-      getValue: (input) => input.command,
-      getSecondary: (input) => input.description,
-      action: 'copy',
-      style: 'terminal',
-      wrapText: true,
-      colorScheme: {
-        primary: 'text-green-400 font-mono',
-        secondary: 'text-gray-400',
-        background: '',
-        border: 'border-green-500 dark:border-green-400',
-        icon: 'text-green-500 dark:text-green-400'
-      }
+      type: 'collapsible',
+      title: (input: any) => input.description || input.command?.split('\n')[0]?.slice(0, 80) || 'Terminal command',
+      defaultOpen: false,
+      contentType: 'text',
+      getContentProps: (input: any) => ({
+        content: input.command || '',
+        format: 'terminal'
+      })
     },
     result: {
       hideOnSuccess: true,
