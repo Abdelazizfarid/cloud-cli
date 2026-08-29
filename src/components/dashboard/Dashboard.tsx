@@ -1,14 +1,16 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { Folder, MessageSquare, Play, Square, Clock, LayoutGrid, List, Trash2, Archive, FileText, X, Save, ChevronDown, ChevronRight, Globe } from 'lucide-react';
+
 import type { Project, ProjectSession } from '../../types/app';
+import type { SessionActivityMap } from '../../hooks/useSessionProtection';
 import { api } from '../../utils/api';
 
 type ViewMode = 'projects' | 'sessions';
 
 interface DashboardProps {
   projects: Project[];
-  activeSessions: Set<string>;
-  processingSessions: Map<string, number>;
+  activeSessions: SessionActivityMap;
+  processingSessions: SessionActivityMap;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession) => void;
   onNewSession?: (project: Project) => void;
@@ -17,13 +19,7 @@ interface DashboardProps {
 }
 
 function getAllSessions(project: Project): ProjectSession[] {
-  return [
-    ...(project.sessions ?? []),
-    ...(project.cursorSessions ?? []),
-    ...(project.codexSessions ?? []),
-    ...(project.geminiSessions ?? []),
-    ...(project.opencodeSessions ?? []),
-  ].map((s) => ({ ...s, __projectId: project.projectId }));
+  return (project.sessions ?? []).map((s) => ({ ...s, __projectId: project.projectId }));
 }
 
 function formatTime(dateStr?: string): string {
@@ -101,10 +97,10 @@ function MemoryFileList({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="flex flex-col w-full max-w-4xl h-[80vh] rounded-xl border border-border bg-card shadow-2xl">
+      <div className="flex h-[80vh] w-full max-w-4xl flex-col rounded-xl border border-border bg-card shadow-2xl">
         <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
           <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-primary" />
+            <FileText className="h-4 w-4 text-primary" />
             <h2 className="text-sm font-semibold text-foreground">
               {editingFile ? `${title} / ${editingFile.name}` : title}
             </h2>
@@ -117,7 +113,7 @@ function MemoryFileList({
                   disabled={saving}
                   className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                 >
-                  <Save className="w-3.5 h-3.5" />
+                  <Save className="h-3.5 w-3.5" />
                   {saving ? 'Saving...' : 'Save'}
                 </button>
                 <button
@@ -129,7 +125,7 @@ function MemoryFileList({
               </>
             )}
             <button onClick={onClose} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted/50">
-              <X className="w-4 h-4" />
+              <X className="h-4 w-4" />
             </button>
           </div>
         </div>
@@ -142,10 +138,10 @@ function MemoryFileList({
             spellCheck={false}
           />
         ) : (
-          <div className="flex-1 overflow-y-auto p-4 space-y-1">
-            <div className="flex items-center gap-2 mb-3">
+          <div className="flex-1 space-y-1 overflow-y-auto p-4">
+            <div className="mb-3 flex items-center gap-2">
               {showNewInput ? (
-                <div className="flex items-center gap-2 flex-1">
+                <div className="flex flex-1 items-center gap-2">
                   <input
                     type="text"
                     value={newFileName}
@@ -161,7 +157,7 @@ function MemoryFileList({
               ) : (
                 <button
                   onClick={() => setShowNewInput(true)}
-                  className="flex items-center gap-1.5 rounded-md border border-dashed border-border/60 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+                  className="flex items-center gap-1.5 rounded-md border border-dashed border-border/60 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
                 >
                   + New Memory File
                 </button>
@@ -171,11 +167,11 @@ function MemoryFileList({
               <div
                 key={file.name}
                 onClick={() => openFile(file.name)}
-                className="flex items-center gap-3 rounded-lg px-4 py-3 cursor-pointer hover:bg-muted/30 border border-transparent hover:border-border/40 transition-colors"
+                className="flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-4 py-3 transition-colors hover:border-border/40 hover:bg-muted/30"
               >
-                <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{file.name}</p>
+                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">{file.name}</p>
                 </div>
                 <span className="text-xs text-muted-foreground">
                   {file.size < 1024 ? `${file.size}B` : `${(file.size / 1024).toFixed(1)}KB`}
@@ -183,7 +179,7 @@ function MemoryFileList({
               </div>
             ))}
             {fileList.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-8">No memory files found</p>
+              <p className="py-8 text-center text-sm text-muted-foreground">No memory files found</p>
             )}
           </div>
         )}
@@ -222,10 +218,10 @@ function MarkdownEditor({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="flex flex-col w-full max-w-4xl h-[80vh] rounded-xl border border-border bg-card shadow-2xl">
+      <div className="flex h-[80vh] w-full max-w-4xl flex-col rounded-xl border border-border bg-card shadow-2xl">
         <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
           <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-primary" />
+            <FileText className="h-4 w-4 text-primary" />
             <h2 className="text-sm font-semibold text-foreground">{title}</h2>
           </div>
           <div className="flex items-center gap-2">
@@ -234,11 +230,11 @@ function MarkdownEditor({
               disabled={saving}
               className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
-              <Save className="w-3.5 h-3.5" />
+              <Save className="h-3.5 w-3.5" />
               {saving ? 'Saving...' : 'Save'}
             </button>
             <button onClick={onClose} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted/50">
-              <X className="w-4 h-4" />
+              <X className="h-4 w-4" />
             </button>
           </div>
         </div>
@@ -336,15 +332,15 @@ export default function Dashboard({
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border/50 px-5 py-3 shrink-0">
+      <div className="flex shrink-0 items-center justify-between border-b border-border/50 px-5 py-3">
         <h1 className="text-base font-semibold text-foreground">Dashboard</h1>
         <div className="flex items-center gap-2">
           <button
             onClick={openGlobalClaudeMd}
-            className="flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+            className="flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground"
             title="Edit global CLAUDE.md"
           >
-            <Globe className="w-3.5 h-3.5" />
+            <Globe className="h-3.5 w-3.5" />
             CLAUDE.md
           </button>
           <div className="flex items-center gap-1 rounded-lg bg-muted/50 p-0.5">
@@ -356,7 +352,7 @@ export default function Dashboard({
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <LayoutGrid className="w-3.5 h-3.5" />
+              <LayoutGrid className="h-3.5 w-3.5" />
               Projects
             </button>
             <button
@@ -367,7 +363,7 @@ export default function Dashboard({
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <List className="w-3.5 h-3.5" />
+              <List className="h-3.5 w-3.5" />
               Conversations
             </button>
           </div>
@@ -438,8 +434,8 @@ function ProjectsView({
   onEditMemory,
 }: {
   projects: Project[];
-  activeSessions: Set<string>;
-  processingSessions: Map<string, number>;
+  activeSessions: SessionActivityMap;
+  processingSessions: SessionActivityMap;
   expandedProjectId: string | null;
   onToggleExpand: (id: string) => void;
   onProjectSelect: (project: Project) => void;
@@ -452,8 +448,8 @@ function ProjectsView({
 }) {
   if (projects.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
-        <Folder className="w-10 h-10 mb-2 opacity-40" />
+      <div className="flex h-48 flex-col items-center justify-center text-muted-foreground">
+        <Folder className="mb-2 h-10 w-10 opacity-40" />
         <p className="text-sm">No projects found</p>
       </div>
     );
@@ -469,18 +465,18 @@ function ProjectsView({
         return (
           <div
             key={project.projectId}
-            className="rounded-lg border border-border/60 bg-card/50 overflow-hidden transition-shadow hover:shadow-md"
+            className="overflow-hidden rounded-lg border border-border/60 bg-card/50 transition-shadow hover:shadow-md"
           >
             {/* Project Header */}
             <div
               onClick={() => onToggleExpand(project.projectId)}
-              className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
+              className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/30"
             >
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-                <Folder className="w-4 h-4 text-primary" />
+                <Folder className="h-4 w-4 text-primary" />
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">{project.displayName}</p>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-foreground">{project.displayName}</p>
                 <p className="text-xs text-muted-foreground">
                   {sessions.length} session{sessions.length !== 1 ? 's' : ''}
                   {runningCount > 0 && (
@@ -488,21 +484,21 @@ function ProjectsView({
                   )}
                 </p>
               </div>
-              {isExpanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+              {isExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
             </div>
 
             {/* Action Bar */}
-            <div className="flex items-center gap-1 border-t border-border/30 px-3 py-1.5 bg-muted/10">
+            <div className="flex items-center gap-1 border-t border-border/30 bg-muted/10 px-3 py-1.5">
               <button
                 onClick={(e) => { e.stopPropagation(); onProjectSelect(project); }}
-                className="rounded px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+                className="rounded px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
               >
                 Open
               </button>
               {onNewSession && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onNewSession(project); }}
-                  className="rounded px-2 py-1 text-xs font-medium text-green-600 dark:text-green-400 hover:bg-green-500/10 transition-colors"
+                  className="rounded px-2 py-1 text-xs font-medium text-green-600 transition-colors hover:bg-green-500/10 dark:text-green-400"
                   title="New session"
                 >
                   +
@@ -510,14 +506,14 @@ function ProjectsView({
               )}
               <button
                 onClick={(e) => { e.stopPropagation(); onEditClaudeMd(project); }}
-                className="rounded px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+                className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground"
                 title="Edit CLAUDE.md"
               >
                 CLAUDE.md
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); onEditMemory(project); }}
-                className="rounded px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+                className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground"
                 title="Edit Memory"
               >
                 Memory
@@ -529,10 +525,10 @@ function ProjectsView({
                     e.stopPropagation();
                     onProjectArchive(project.projectId);
                   }}
-                  className="rounded p-1 text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 transition-colors"
+                  className="rounded p-1 text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-500"
                   title="Archive project"
                 >
-                  <Archive className="w-3.5 h-3.5" />
+                  <Archive className="h-3.5 w-3.5" />
                 </button>
               )}
               {onProjectDelete && (
@@ -543,17 +539,17 @@ function ProjectsView({
                       onProjectDelete(project.projectId, true);
                     }
                   }}
-                  className="rounded p-1 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                  className="rounded p-1 text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500"
                   title="Delete project permanently"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>
 
             {/* Expanded Sessions */}
             {isExpanded && sessions.length > 0 && (
-              <div className="border-t border-border/40 bg-muted/20 max-h-48 overflow-y-auto">
+              <div className="max-h-48 overflow-y-auto border-t border-border/40 bg-muted/20">
                 {sessions.map((session) => (
                   <SessionRow
                     key={session.id}
@@ -586,14 +582,14 @@ function SessionsView({
   onSessionSelect,
 }: {
   sessions: (ProjectSession & { _projectName: string })[];
-  activeSessions: Set<string>;
-  processingSessions: Map<string, number>;
+  activeSessions: SessionActivityMap;
+  processingSessions: SessionActivityMap;
   onSessionSelect: (session: ProjectSession) => void;
 }) {
   if (sessions.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
-        <MessageSquare className="w-10 h-10 mb-2 opacity-40" />
+      <div className="flex h-48 flex-col items-center justify-center text-muted-foreground">
+        <MessageSquare className="mb-2 h-10 w-10 opacity-40" />
         <p className="text-sm">No sessions found</p>
       </div>
     );
@@ -605,23 +601,23 @@ function SessionsView({
         <div
           key={session.id}
           onClick={() => onSessionSelect(session)}
-          className="flex items-center gap-3 rounded-lg px-4 py-2.5 cursor-pointer hover:bg-muted/30 transition-colors border border-transparent hover:border-border/40"
+          className="flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-4 py-2.5 transition-colors hover:border-border/40 hover:bg-muted/30"
         >
           <div className="flex items-center gap-2">
             {activeSessions.has(session.id) || processingSessions.has(session.id) ? (
-              <Play className="w-3 h-3 text-green-500 fill-green-500" />
+              <Play className="h-3 w-3 fill-green-500 text-green-500" />
             ) : (
-              <Square className="w-3 h-3 text-muted-foreground" />
+              <Square className="h-3 w-3 text-muted-foreground" />
             )}
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm text-foreground truncate">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm text-foreground">
               {session.summary || session.id.slice(0, 8)}
             </p>
             <p className="text-xs text-muted-foreground">{session._projectName}</p>
           </div>
-          <span className="text-xs text-muted-foreground flex items-center gap-1">
-            <Clock className="w-3 h-3" />
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Clock className="h-3 w-3" />
             {formatTime(session.updated_at || session.created_at || session.createdAt)}
           </span>
         </div>
@@ -646,17 +642,17 @@ function SessionRow({
   return (
     <div
       onClick={onSelect}
-      className="flex items-center gap-2 px-4 py-2 cursor-pointer hover:bg-muted/40 transition-colors"
+      className="flex cursor-pointer items-center gap-2 px-4 py-2 transition-colors hover:bg-muted/40"
     >
       {isActive || isProcessing ? (
-        <Play className="w-3 h-3 text-green-500 fill-green-500 shrink-0" />
+        <Play className="h-3 w-3 shrink-0 fill-green-500 text-green-500" />
       ) : (
-        <MessageSquare className="w-3 h-3 text-muted-foreground shrink-0" />
+        <MessageSquare className="h-3 w-3 shrink-0 text-muted-foreground" />
       )}
-      <span className="text-xs text-foreground truncate flex-1">
+      <span className="flex-1 truncate text-xs text-foreground">
         {session.summary || session.id.slice(0, 8)}
       </span>
-      <span className="text-xs text-muted-foreground shrink-0">
+      <span className="shrink-0 text-xs text-muted-foreground">
         {formatTime(session.updated_at || session.created_at || session.createdAt)}
       </span>
     </div>

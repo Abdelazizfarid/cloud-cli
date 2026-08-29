@@ -1,18 +1,28 @@
-import { useCallback, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import Sidebar from '../sidebar/view/Sidebar';
 import MainContent from '../main-content/view/MainContent';
 import CommandPalette from '../command-palette/CommandPalette';
+import TabBar from '../tab-bar/TabBar';
+import NewTabPicker from '../tab-bar/NewTabPicker';
+import Dashboard from '../dashboard/Dashboard';
+import SplitView from '../split-view/SplitView';
+import SyncPanel from '../sync/SyncPanel';
 import { QuickSettingsPanel } from '../quick-settings-panel';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { PaletteOpsProvider, usePaletteOpsRegister } from '../../contexts/PaletteOpsContext';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { useSessionProtection } from '../../hooks/useSessionProtection';
 import { useProjectsState } from '../../hooks/useProjectsState';
-import { useQueuedMessageAutoSend } from '../../hooks/useQueuedMessageAutoSend';
+import { useTabsState } from '../../hooks/useTabsState';
+import { useUiPreferences } from '../../hooks/useUiPreferences';
 import { api } from '../../utils/api';
+
+const DEFAULT_AGENT_CONTROL_PLANE_URL = 'https://agents.hooktrack.life/sessions/';
+const DEFAULT_AGENT_CONTROL_PLANE_PATH = '/sessions/';
+import { useQueuedMessageAutoSend } from '../../hooks/useQueuedMessageAutoSend';
 
 type RunningSessionApiItem = {
   sessionId?: unknown;
@@ -50,9 +60,13 @@ export default function AppContent() {
 
 function AppContentInner() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { sessionId } = useParams<{ sessionId?: string }>();
+  const isHomeRoute = location.pathname === '/home' || location.pathname === '/home/';
   const { t } = useTranslation('common');
   const { isMobile } = useDeviceSettings({ trackPWA: false });
+  const { preferences } = useUiPreferences();
+  const sidebarCollapsed = !isMobile && !preferences.sidebarVisible;
   const { ws, sendMessage, subscribe } = useWebSocket();
 
   const {
@@ -63,6 +77,7 @@ function AppContentInner() {
   } = useSessionProtection();
 
   const {
+    projects,
     selectedProject,
     selectedSession,
     activeTab,
@@ -79,6 +94,8 @@ function AppContentInner() {
     sidebarSharedProps,
     handleNewSession,
     handleProjectSelect,
+    handleSessionSelect,
+    handleProjectDelete,
   } = useProjectsState({
     sessionId,
     navigate,
@@ -98,48 +115,104 @@ function AppContentInner() {
     markSessionProcessing,
   });
 
-  const refreshRunningSessions = useCallback(async () => {
+  const {
+    tabs,
+    activeTab: activeSessionTab,
+    activeTabId,
+    addTab,
+    closeTab,
+    switchTab,
+    updateTabSession,
+    updateTabProject,
+  } = useTabsState();
+
+  const [showNewTabPicker, setShowNewTabPicker] = useState(false);
+  const [forceDashboard, setForceDashboard] = useState(false);
+  const [splitMode, setSplitMode] = useState(false);
+  const [showSyncPanel, setShowSyncPanel] = useState(false);
+  const [showAgentControlPlane, setShowAgentControlPlane] = useState(false);
+  const [agentControlPlaneCacheBust, setAgentControlPlaneCacheBust] = useState(() => Date.now());
+  const agentControlPlaneUrl = useMemo(() => {
+    const baseUrl = (import.meta.env.VITE_AGENT_CONTROL_PLANE_URL || DEFAULT_AGENT_CONTROL_PLANE_URL).trim();
+    const token = (import.meta.env.VITE_AGENT_CONTROL_PLANE_TOKEN || '').trim();
+    const fallbackOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
+
     try {
-      const response = await api.runningSessions();
-      if (!response.ok) {
-        return;
+      const parsedBase = new URL(baseUrl, fallbackOrigin);
+      const normalizedPath = DEFAULT_AGENT_CONTROL_PLANE_PATH;
+      const parsedUrl = new URL(normalizedPath, parsedBase.origin);
+      if (token) {
+        parsedUrl.searchParams.set('token', token);
       }
-
-      const payload = (await response.json()) as RunningSessionsApiPayload;
-      const sessions = Array.isArray(payload.data?.sessions) ? payload.data.sessions : [];
-
-      syncProcessingSessions(
-        sessions
-          .map((session) => {
-            if (typeof session.sessionId !== 'string' || !session.sessionId) {
-              return null;
-            }
-
-            return {
-              sessionId: session.sessionId,
-              startedAt: parseStartedAt(session.startedAt),
-              statusText: typeof session.statusText === 'string' ? session.statusText : undefined,
-              canInterrupt: typeof session.canInterrupt === 'boolean' ? session.canInterrupt : undefined,
-            };
-          })
-          .filter((session): session is NonNullable<typeof session> => Boolean(session)),
-      );
-    } catch (error) {
-      console.error('[AppContent] Failed to sync running sessions:', error);
+      parsedUrl.searchParams.set('cloudcli_embed', '1');
+      parsedUrl.searchParams.set('cache_bust', String(agentControlPlaneCacheBust));
+      return parsedUrl.toString();
+    } catch {
+      return baseUrl;
     }
-  }, [syncProcessingSessions]);
+  }, [agentControlPlaneCacheBust]);
 
+  // Clear forceDashboard when navigating away from /home
   useEffect(() => {
-    void refreshRunningSessions();
-  }, [refreshRunningSessions]);
+    if (sessionId) {
+      setForceDashboard(false);
+    }
+  }, [sessionId]);
 
+  // Sync: when user switches session tab, select that tab's project/session
+  const handleTabSwitch = useCallback((tabId: string) => {
+    setForceDashboard(false);
+    setSplitMode(false);
+    setShowAgentControlPlane(false);
+    switchTab(tabId);
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    const project = projects.find((p) => p.projectId === tab.projectId);
+    if (project) {
+      handleProjectSelect(project);
+      if (tab.sessionId) {
+        const allSessions = project.sessions ?? [];
+        const session = allSessions.find((s) => s.id === tab.sessionId);
+        if (session) handleSessionSelect(session);
+      }
+    }
+  }, [switchTab, tabs, projects, handleProjectSelect, handleSessionSelect]);
+
+  const handleDashboardProjectDelete = useCallback(async (projectId: string, force: boolean) => {
+    try {
+      const response = await api.deleteProject(projectId, force);
+      if (response.ok) {
+        handleProjectDelete(projectId);
+      }
+    } catch (e) {
+      console.error('Failed to delete project:', e);
+    }
+  }, [handleProjectDelete]);
+
+  // Sync: when user selects a session from sidebar, update active tab
   useEffect(() => {
-    const interval = window.setInterval(() => {
-      void refreshRunningSessions();
-    }, 5000);
+    if (splitMode) return;
+    if (!activeSessionTab || !selectedSession) return;
+    if (activeSessionTab.sessionId !== selectedSession.id) {
+      updateTabSession(activeSessionTab.id, selectedSession);
+    }
+  }, [selectedSession, activeSessionTab, updateTabSession, splitMode]);
 
-    return () => window.clearInterval(interval);
-  }, [refreshRunningSessions]);
+  // Sync: when user selects a project from sidebar, update active tab
+  useEffect(() => {
+    if (splitMode) return;
+    if (!activeSessionTab || !selectedProject) return;
+    if (activeSessionTab.projectId !== selectedProject.projectId) {
+      updateTabProject(activeSessionTab.id, selectedProject);
+    }
+  }, [selectedProject, activeSessionTab, updateTabProject, splitMode]);
+
+  // Auto-create first tab if none exist and a project is loaded
+  useEffect(() => {
+    if (tabs.length === 0 && selectedProject) {
+      addTab(selectedProject, selectedSession);
+    }
+  }, [tabs.length, selectedProject, selectedSession, addTab]);
 
   usePaletteOpsRegister({
     openSettings,
@@ -180,6 +253,22 @@ function AppContentInner() {
     };
   }, [navigate, refreshProjectsSilently, setActiveTab, setSidebarOpen]);
 
+  const openAgentControlPlane = useCallback(() => {
+    setForceDashboard(false);
+    setSplitMode(false);
+    setAgentControlPlaneCacheBust(Date.now());
+    setShowAgentControlPlane(true);
+    setSidebarOpen(false);
+  }, [setSidebarOpen]);
+
+  // Refresh projects when active sessions change (new session created)
+  useEffect(() => {
+    if (processingSessions.size > 0) {
+      const timer = setTimeout(() => void refreshProjectsSilently(), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [processingSessions.size, refreshProjectsSilently]);
+
   // Pending tool permissions are recovered through the `chat.subscribe` flow:
   // the `chat_subscribed` ack carries them on session open and on reconnect,
   // so no separate permission-recovery message is needed here.
@@ -204,12 +293,59 @@ function AppContentInner() {
     return () => vv.removeEventListener('resize', update);
   }, []);
 
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem('sidebar-width');
+    return saved ? parseInt(saved, 10) : 260;
+  });
+  const isResizing = useRef(false);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizing.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!isResizing.current) return;
+      const newWidth = Math.min(Math.max(ev.clientX, 180), 500);
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      isResizing.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      localStorage.setItem('sidebar-width', String(sidebarWidth));
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [sidebarWidth]);
+
   return (
     <div className="fixed inset-0 flex bg-background" style={{ bottom: 'var(--keyboard-height, 0px)' }}>
       {!isMobile ? (
-        <div className="h-full flex-shrink-0 border-r border-border/50">
-          <Sidebar {...sidebarSharedProps} />
-        </div>
+        <>
+          <div
+            className="h-full flex-shrink-0 border-r border-border/50 transition-[width] duration-150"
+            style={{ width: sidebarCollapsed ? 'auto' : sidebarWidth }}
+          >
+            <Sidebar
+              {...sidebarSharedProps}
+              onOpenAgentControlPlane={openAgentControlPlane}
+            />
+          </div>
+          {!sidebarCollapsed && (
+            <div
+              onMouseDown={handleMouseDown}
+              className="group relative z-10 h-full w-1 flex-shrink-0 cursor-col-resize"
+            >
+              <div className="absolute inset-y-0 -left-0.5 w-2 transition-colors duration-150 group-hover:bg-primary/20 group-active:bg-primary/30" />
+            </div>
+          )}
+        </>
       ) : (
         <div
           className={`fixed inset-0 z-50 flex transition-all duration-150 ease-out ${sidebarOpen ? 'visible opacity-100' : 'invisible opacity-0'
@@ -234,38 +370,126 @@ function AppContentInner() {
             onClick={(event) => event.stopPropagation()}
             onTouchStart={(event) => event.stopPropagation()}
           >
-            <Sidebar {...sidebarSharedProps} />
+            <Sidebar
+              {...sidebarSharedProps}
+              onOpenAgentControlPlane={openAgentControlPlane}
+            />
           </div>
         </div>
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <MainContent
-          selectedProject={selectedProject}
-          selectedSession={selectedSession}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          ws={ws}
-          sendMessage={sendMessage}
-          isMobile={isMobile}
-          onMenuClick={() => setSidebarOpen(true)}
-          isLoading={isLoadingProjects}
-          onInputFocusChange={setIsInputFocused}
-          onSessionProcessing={markSessionProcessing}
-          onSessionIdle={markSessionIdle}
-          processingSessions={processingSessions}
-          onNavigateToSession={(targetSessionId: string, options) =>
-            navigate(`/session/${targetSessionId}`, { replace: Boolean(options?.replace) })
-          }
-          onSessionEstablished={(targetSessionId, context) =>
-            registerOptimisticSession({ sessionId: targetSessionId, ...context })
-          }
-          onShowSettings={openSettings}
-          externalMessageUpdate={externalMessageUpdate}
-          newSessionTrigger={newSessionTrigger}
-          onProjectSelect={handleProjectSelect}
-          onProjectsRefresh={() => void refreshProjectsSilently()}
-        />
+        {!isMobile && (
+          <TabBar
+            tabs={tabs}
+            activeTabId={activeTabId}
+            showingDashboard={forceDashboard || isHomeRoute || (!selectedSession && !isLoadingProjects && activeTab !== 'chat' && projects.length > 0)}
+            splitMode={splitMode}
+            onSwitch={handleTabSwitch}
+            onClose={closeTab}
+            onAdd={() => setShowNewTabPicker(true)}
+            onHome={() => { setForceDashboard(true); setSplitMode(false); navigate('/home'); }}
+            onToggleSplit={() => { setSplitMode((prev) => !prev); setForceDashboard(false); }}
+          />
+        )}
+        <div className="relative min-h-0 flex-1">
+          {showNewTabPicker && (
+            <NewTabPicker
+              projects={projects}
+              onSelect={(project, session) => {
+                addTab(project, session);
+                handleProjectSelect(project);
+                if (session) handleSessionSelect(session);
+                setShowNewTabPicker(false);
+              }}
+              onCancel={() => setShowNewTabPicker(false)}
+            />
+          )}
+          {showAgentControlPlane ? (
+            <div className="flex h-full min-w-0 flex-col overflow-hidden bg-background">
+              <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
+                <h2 className="text-sm font-semibold text-foreground">Agent Control Plane</h2>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAgentControlPlaneCacheBust(Date.now())}
+                    className="rounded-md border border-border/60 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    Refresh ACP
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAgentControlPlane(false)}
+                    className="rounded-md border border-border/60 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    Back to CloudCLI
+                  </button>
+                </div>
+              </div>
+              <iframe
+                key={String(agentControlPlaneCacheBust)}
+                title="Agent Control Plane"
+                src={agentControlPlaneUrl}
+                className="min-h-0 w-full flex-1 border-0"
+              />
+            </div>
+          ) : (forceDashboard || isHomeRoute || (!selectedSession && !isLoadingProjects && activeTab !== 'chat')) && projects.length > 0 && !splitMode ? (
+              <Dashboard
+                projects={projects}
+                activeSessions={processingSessions}
+                processingSessions={processingSessions}
+                onProjectSelect={(project) => { setForceDashboard(false); handleProjectSelect(project); }}
+                onSessionSelect={(session) => { setForceDashboard(false); handleSessionSelect(session); }}
+                onNewSession={(project) => { setForceDashboard(false); handleNewSession(project); }}
+                onProjectDelete={handleDashboardProjectDelete}
+                onProjectArchive={async (projectId) => {
+                  try {
+                    const res = await api.archiveProject(projectId);
+                    if (res.ok) handleProjectDelete(projectId);
+                  } catch (e) { console.error('Archive failed:', e); }
+                }}
+              />
+            ) : splitMode && tabs.length > 1 ? (
+              <SplitView
+                tabs={tabs}
+                activeTabId={activeTabId}
+                projects={projects}
+                ws={ws}
+                sendMessage={sendMessage}
+                processingSessions={processingSessions}
+                onFocusTab={switchTab}
+                onSessionProcessing={markSessionProcessing}
+                onSessionIdle={markSessionIdle}
+              />
+            ) : (
+              <MainContent
+              selectedProject={selectedProject}
+              selectedSession={selectedSession}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              ws={ws}
+              sendMessage={sendMessage}
+              isMobile={isMobile}
+              onMenuClick={() => setSidebarOpen(true)}
+              isLoading={isLoadingProjects}
+              onInputFocusChange={setIsInputFocused}
+              onSessionProcessing={markSessionProcessing}
+              onSessionIdle={markSessionIdle}
+              processingSessions={processingSessions}
+              onNavigateToSession={(targetSessionId: string, options) =>
+              navigate(`/session/${targetSessionId}`, { replace: Boolean(options?.replace) })
+              }
+              onSessionEstablished={(targetSessionId, context) =>
+              registerOptimisticSession({ sessionId: targetSessionId, ...context })
+              }
+              onShowSettings={openSettings}
+              externalMessageUpdate={externalMessageUpdate}
+              newSessionTrigger={newSessionTrigger}
+              onProjectSelect={handleProjectSelect}
+              onProjectsRefresh={() => void refreshProjectsSilently()}
+              />
+            )}
+        </div>
       </div>
 
       <CommandPalette
@@ -275,6 +499,7 @@ function AppContentInner() {
         onShowTab={setActiveTab}
       />
 
+      {showSyncPanel && <SyncPanel onClose={() => setShowSyncPanel(false)} />}
       <QuickSettingsPanel />
     </div>
   );

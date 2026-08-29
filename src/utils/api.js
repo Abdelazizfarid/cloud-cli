@@ -376,4 +376,31 @@ export const api = {
     method: 'DELETE',
     ...options,
   }),
+  archiveProject: (projectId) =>
+    authenticatedFetch(`/api/projects/${projectId}`, { method: 'DELETE' }),
+
+  // CLAUDE.md and per-project memory files (fork)
+  getGlobalClaudeMd: () =>
+    authenticatedFetch('/api/claude-md/global'),
+  saveGlobalClaudeMd: (content) =>
+    authenticatedFetch('/api/claude-md/global', {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
+  getProjectClaudeMd: (projectId) =>
+    authenticatedFetch(`/api/projects/${projectId}/claude-md`),
+  saveProjectClaudeMd: (projectId, content) =>
+    authenticatedFetch(`/api/projects/${projectId}/claude-md`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
+  getProjectMemory: (projectId) =>
+    authenticatedFetch(`/api/projects/${projectId}/memory-md`),
+  getProjectMemoryFile: (projectId, fileName) =>
+    authenticatedFetch(`/api/projects/${projectId}/memory-md/${encodeURIComponent(fileName)}`),
+  saveProjectMemoryFile: (projectId, fileName, content) =>
+    authenticatedFetch(`/api/projects/${projectId}/memory-md/${encodeURIComponent(fileName)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
 };

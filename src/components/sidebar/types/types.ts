@@ -43,6 +43,7 @@ export type SessionDeleteConfirmation = {
 };
 
 export type SidebarProps = {
+  onOpenAgentControlPlane?: () => void;
   projects: Project[];
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
