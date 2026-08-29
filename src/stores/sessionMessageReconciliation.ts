@@ -94,7 +94,11 @@ export function removeOptimisticUserEchoes(
   const claimedServerIds = new Set<string>();
 
   return realtimeMessages.filter((message) => {
-    if (!message.id.startsWith('local_')) {
+    // A realtime row with no id is not an optimistic echo, so keep it. Reading
+    // `.startsWith` off an absent id used to throw here, and because this runs
+    // inside the store's fetch it took down history loading and sending for the
+    // whole session rather than skipping one row.
+    if (!message.id?.startsWith('local_')) {
       return true;
     }
 

@@ -170,6 +170,12 @@ export function useChatRealtimeHandlers({
         case 'loading_progress':
           return;
 
+        // Composer draft mirroring rides the same socket but is not chat
+        // content: the frames carry no message id, and the default branch
+        // below would push them into the transcript as messages.
+        case 'draft_sync':
+          return;
+
         default:
           break;
       }
