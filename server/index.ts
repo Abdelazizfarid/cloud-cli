@@ -121,6 +121,13 @@ const wss = createWebSocketServer(server, {
 // Make WebSocket server available to routes
 app.locals.wss = wss;
 
+// Express fingerprints every res.json() with an ETag, which is what lets a
+// browser revalidate a cached API response into a 304. A 304 whose cache entry
+// has since been evicted reaches the client as an empty body, so a chat with
+// 3918 messages renders blank. Static assets are unaffected: express.static
+// carries its own ETag handling and hashed bundles are served immutable.
+app.set('etag', false);
+
 app.use(cors({ exposedHeaders: ['X-Refreshed-Token', 'X-Auth-Error'] }));
 app.use(express.json({
     limit: '200mb',
@@ -143,6 +150,17 @@ app.get('/health', (req, res) => {
         installMode,
         version: RUNNING_VERSION
     });
+});
+
+// Authenticated API payloads are per-user and change constantly. Express sends
+// an ETag but no Cache-Control, so browsers heuristically cache these responses
+// and later revalidate into a 304 -- and a 304 landing against an evicted cache
+// entry yields an empty body, which renders as an empty chat. Keep them out of
+// the HTTP cache. Handlers that serve genuinely cacheable bytes (images,
+// screenshots) set their own Cache-Control after this and still win.
+app.use('/api', (_request: Request, response: Response, next: NextFunction) => {
+    response.set('Cache-Control', 'no-store');
+    next();
 });
 
 // Optional API key validation (if configured)
