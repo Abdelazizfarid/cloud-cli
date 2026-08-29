@@ -13,6 +13,7 @@ import { useDropzone } from 'react-dropzone';
 
 import { authenticatedFetch } from '../../../utils/api';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
+import { useDeviceSettings } from '../../../hooks/useDeviceSettings';
 import type { MarkSessionProcessing, SessionActivityMap } from '../../../hooks/useSessionProtection';
 import { grantClaudeToolPermission } from '../utils/chatPermissions';
 import {
@@ -270,6 +271,7 @@ export function useChatComposerState({
   const [commandModalPayload, setCommandModalPayload] = useState<CommandModalPayload | null>(null);
 
   const { subscribe, isConnected } = useWebSocket();
+  const { isMobile } = useDeviceSettings({ trackPWA: false });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputHighlightRef = useRef<HTMLDivElement>(null);
   const textareaLineHeightRef = useRef<number | null>(null);
@@ -1239,7 +1241,18 @@ export function useChatComposerState({
         if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
           event.preventDefault();
           handleSubmit(event);
-        } else if (!event.shiftKey && !event.ctrlKey && !event.metaKey && !sendByCtrlEnter) {
+          return;
+        }
+
+        // On a phone the on-screen keyboard's return key is a newline key:
+        // there is no Shift+Enter to fall back on, so sending here makes a
+        // multi-line prompt impossible to type. Leave the default (newline)
+        // and send from the button, or Ctrl/Cmd+Enter with a hardware keyboard.
+        if (isMobile) {
+          return;
+        }
+
+        if (!event.shiftKey && !event.ctrlKey && !event.metaKey && !sendByCtrlEnter) {
           event.preventDefault();
           handleSubmit(event);
         }
@@ -1250,6 +1263,7 @@ export function useChatComposerState({
       handleCommandMenuKeyDown,
       handleFileMentionsKeyDown,
       handleSubmit,
+      isMobile,
       sendByCtrlEnter,
       showCommandMenu,
       showFileDropdown,
