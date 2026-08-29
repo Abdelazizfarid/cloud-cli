@@ -47,5 +47,7 @@ export function createSettingsRouter(
   router.post('/push/unsubscribe', respond((req) => service.unsubscribeFromPush(
     userId(req), req.body?.endpoint,
   )));
+  router.post('/push/test', respond((req) => service.sendTestPush(userId(req))));
+
   return router;
 }

@@ -182,5 +182,11 @@ export function createSettingsService(dependencies: SettingsDependencies) {
       }
       return { success: true };
     },
+    /** Fires a one-off notification so the user can confirm push actually arrives. */
+    sendTestPush(userId: number) {
+      const event = dependencies.notifications.createEnabledEvent();
+      void dependencies.notifications.notifyUser(userId, event);
+      return { success: true };
+    },
   };
 }

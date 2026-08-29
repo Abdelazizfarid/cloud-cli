@@ -49,6 +49,9 @@ import { worktreesRoutes } from './modules/worktrees/index.js';
 import browserUseMcpRoutes from './modules/browser-use/browser-use-mcp.routes.js';
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
 import { initializeDatabase, sessionsDb } from './modules/database/index.js';
+import syncRoutes from './modules/sync/sync.routes.js';
+import { imagesRoutes, screenshotsRoutes } from './modules/media/media.routes.js';
+import { claudeMdRoutes, projectMemoryRoutes } from './modules/memory/memory.routes.js';
 import { configureWebPush } from './modules/notifications/index.js';
 
 const __dirname = getModuleDirectory(import.meta.url);
@@ -120,7 +123,7 @@ app.locals.wss = wss;
 
 app.use(cors({ exposedHeaders: ['X-Refreshed-Token', 'X-Auth-Error'] }));
 app.use(express.json({
-    limit: '50mb',
+    limit: '200mb',
     type: (req) => {
         // Skip multipart/form-data requests (for file uploads like images)
         const contentType = req.headers['content-type'] || '';
@@ -130,7 +133,7 @@ app.use(express.json({
         return contentType.includes('json');
     }
 }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.urlencoded({ limit: '200mb', extended: true }));
 
 // Public health check endpoint (no authentication required)
 app.get('/health', (req, res) => {
@@ -150,6 +153,10 @@ app.use('/api/auth', authRoutes);
 
 // File Tree API Routes (protected)
 app.use('/api/file-tree', authenticateToken, fileTreeRoutes);
+
+// Project CLAUDE.md / memory files (fork) - mounted ahead of the upstream
+// projects router so these sub-paths resolve first and the rest fall through.
+app.use('/api/projects', authenticateToken, projectMemoryRoutes);
 
 // Projects API Routes (protected)
 app.use('/api/projects', authenticateToken, projectModuleRoutes);
@@ -171,6 +178,19 @@ app.use('/api/commands', authenticateToken, commandsRoutes);
 
 // Settings API Routes (protected)
 app.use('/api/settings', authenticateToken, settingsRoutes);
+
+// Local<->server session sync (fork, protected)
+app.use('/api/sync', authenticateToken, syncRoutes);
+
+// Global CLAUDE.md management (fork, protected)
+app.use('/api/claude-md', authenticateToken, claudeMdRoutes);
+
+// Agent-run images. Unauthenticated: served directly as <img> sources, which
+// cannot carry an Authorization header. Paths are workspace-confined.
+app.use('/api/images', imagesRoutes);
+
+// Screenshots: /view is token-signed, /sign and /file require a session.
+app.use('/api/screenshots', screenshotsRoutes);
 
 app.use('/api/system', authenticateToken, systemRoutes);
 
