@@ -11,11 +11,15 @@ const voiceTimeoutMs = Number.isFinite(parsedTimeoutMs) && parsedTimeoutMs > 0
 
 const voiceService = createVoiceService({
   defaults: {
+    sttProvider: process.env.VOICE_STT_PROVIDER === 'gemini' ? 'gemini' : 'openai',
+    geminiBaseUrl: (process.env.VOICE_GEMINI_BASE_URL
+      || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, ''),
     // The server-controlled URL is intentional: frontend-configured custom
     // backends are called directly by the browser and never become SSRF input.
     baseUrl: (process.env.VOICE_API_BASE_URL || '').replace(/\/$/, ''),
     apiKey: process.env.VOICE_API_KEY || '',
-    sttModel: process.env.VOICE_STT_MODEL || 'whisper-1',
+    sttModel: process.env.VOICE_STT_MODEL
+      || (process.env.VOICE_STT_PROVIDER === 'gemini' ? 'gemini-2.5-flash' : 'whisper-1'),
     ttsModel: process.env.VOICE_TTS_MODEL || 'tts-1',
     ttsVoice: process.env.VOICE_TTS_VOICE || 'alloy',
   },

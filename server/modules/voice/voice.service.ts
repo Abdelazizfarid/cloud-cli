@@ -8,6 +8,14 @@ import type {
 
 type VoiceServiceDependencies = {
   defaults: {
+    /**
+     * Speech-to-text backend family. 'openai' posts multipart audio to
+     * {baseUrl}/audio/transcriptions. 'gemini' is supported because Gemini has
+     * no OpenAI-compatible transcription route -- its OpenAI shim returns 404
+     * for /audio/transcriptions -- so it needs generateContent with inline audio.
+     */
+    sttProvider?: 'openai' | 'gemini';
+    geminiBaseUrl?: string;
     baseUrl: string;
     apiKey: string;
     sttModel: string;
@@ -18,15 +26,26 @@ type VoiceServiceDependencies = {
   fetchBackend(url: string, options: RequestInit): Promise<Response>;
 };
 
-type ResolvedVoiceConfig = VoiceServiceDependencies['defaults'] & {
+type ResolvedVoiceConfig = {
+  sttProvider: 'openai' | 'gemini';
+  geminiBaseUrl: string;
+  baseUrl: string;
+  apiKey: string;
+  sttModel: string;
+  ttsModel: string;
+  ttsVoice: string;
   ttsFormat: string;
 };
+
+const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 
 function resolveVoiceConfig(
   defaults: VoiceServiceDependencies['defaults'],
   overrides: VoiceRequestOverrides,
 ): ResolvedVoiceConfig {
   return {
+    sttProvider: defaults.sttProvider ?? 'openai',
+    geminiBaseUrl: defaults.geminiBaseUrl || DEFAULT_GEMINI_BASE_URL,
     baseUrl: defaults.baseUrl,
     apiKey: overrides.apiKey || defaults.apiKey,
     sttModel: overrides.sttModel || defaults.sttModel,
@@ -108,6 +127,50 @@ function createTranscriptionFormData(audio: VoiceAudioUpload, sttModel: string):
   return formData;
 }
 
+
+/**
+ * Transcription instruction carried over from the fork's client-side recorder:
+ * callers dictate in any language and expect an English prompt back.
+ */
+const GEMINI_TRANSCRIBE_INSTRUCTION =
+  'Transcribe this audio and output English text only. If speech is not English, '
+  + 'translate it to English. Never include Arabic or bilingual output. Return only '
+  + 'the final transcript sentence(s) with no labels or prefixes.';
+
+function geminiTranscriptionBody(audio: VoiceAudioUpload): string {
+  return JSON.stringify({
+    contents: [
+      {
+        parts: [
+          { text: GEMINI_TRANSCRIBE_INSTRUCTION },
+          {
+            inline_data: {
+              mime_type: audio.mimeType,
+              data: Buffer.from(audio.bytes).toString('base64'),
+            },
+          },
+        ],
+      },
+    ],
+  });
+}
+
+/** Pulls the transcript out of a generateContent response, tolerating missing parts. */
+function readGeminiText(responseText: string): string {
+  try {
+    const parsed = JSON.parse(responseText) as {
+      candidates?: { content?: { parts?: { text?: unknown }[] } }[];
+    };
+    const parts = parsed.candidates?.[0]?.content?.parts ?? [];
+    return parts
+      .map((part) => (typeof part.text === 'string' ? part.text : ''))
+      .join('')
+      .trim();
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Creates the Voice application service used by the Voice composition root and
  * its unit tests. The outbound request function and server configuration are
@@ -115,10 +178,39 @@ function createTranscriptionFormData(audio: VoiceAudioUpload, sttModel: string):
  */
 export function createVoiceService(dependencies: VoiceServiceDependencies): VoiceService {
   return {
-    getHealth: () => ({ configured: Boolean(dependencies.defaults.baseUrl) }),
+    getHealth: () => ({
+      configured: dependencies.defaults.sttProvider === 'gemini'
+        ? Boolean(dependencies.defaults.apiKey)
+        : Boolean(dependencies.defaults.baseUrl),
+    }),
 
     async transcribe(input) {
       const config = resolveVoiceConfig(dependencies.defaults, input.overrides);
+
+      if (config.sttProvider === 'gemini') {
+        if (!config.apiKey) {
+          return { ok: false, status: 503, error: 'No voice backend configured' };
+        }
+        const url = `${config.geminiBaseUrl}/models/${encodeURIComponent(config.sttModel)}:generateContent`;
+        try {
+          const response = await dependencies.fetchBackend(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': config.apiKey,
+            },
+            body: geminiTranscriptionBody(input.audio),
+          });
+          const responseText = await response.text();
+          if (!response.ok) {
+            return backendFailure(response.status, responseText);
+          }
+          return { ok: true, value: { text: readGeminiText(responseText) } };
+        } catch (error) {
+          return unreachableBackendFailure(error, dependencies.timeoutMs);
+        }
+      }
+
       const configurationFailure = validateConfiguredBackend(config);
       if (configurationFailure) {
         return configurationFailure;
